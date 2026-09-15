@@ -1,0 +1,15 @@
+# 构建产物
+wallpaper-tool.exe
+wallpaper-tool.exe~
+dist/
+
+# 运行时配置（含密钥），仅提交示例配置
+config.yaml
+config.local.yaml
+
+# Magic Context 数据
+.cortexkit/
+
+# 日志与临时文件
+*.log
+tmp/

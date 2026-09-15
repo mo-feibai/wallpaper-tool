@@ -1,0 +1,68 @@
+# wallpaper-tool 配置示例
+# 实际配置文件位于 %APPDATA%\wallpaper-tool\config.yaml
+# 所有值均会在程序内做合法性校验与修正
+
+# 换图间隔(分钟), 最小 1
+interval_minutes: 30
+
+# wallhaven 分类开关
+categories:
+  general: true
+  anime: true
+  people: false
+
+# 内容分级(匿名接口不支持 NSFW)
+purity:
+  sfw: true
+  sketchy: false
+
+# 搜索关键词, 留空为不限; 支持 wallhaven 语法(如 -tag 排除, +tag1 +tag2 同时包含)
+query: ""
+
+# 排序: random | toplist | date_added | views | favorites | relevance
+sorting: "random"
+
+# 排序方向: desc | asc
+order: "desc"
+
+# toplist 时间范围: 1d | 3d | 1w | 1M | 3M | 6M | 1y
+top_range: "1M"
+
+# 最小分辨率, 留空为不限, 例: 1920x1080
+at_least: "1920x1080"
+
+# 宽高比方向: landscape(横屏) | portrait(竖屏) | 留空(不限)
+# 非空时优先于下面的自定义宽高比
+orientation: "landscape"
+
+# 自定义宽高比, 逗号分隔, 留空为不限, 例: 16x9 或 16x9,16x10
+ratios: ""
+
+# 应用目标
+targets:
+  desktop: true
+  lock_screen: false   # 首次开启会弹一次 UAC 注册计划任务, 之后静默换图
+
+# 桌面适配方式: fill | fit | stretch | center | tile | span
+desktop_fit: "fill"
+
+# 开机自启(写 HKCU Run 键, 无需管理员)
+autostart: false
+
+# 访问 wallhaven 的代理地址, 例 http://127.0.0.1:20112
+# 留空自动使用 Windows 系统代理(与浏览器一致), 再退回环境变量, 最后直连
+# 说明: 走代理时域名由代理远端解析, 可避开本机 DNS 污染(TUN 模式同理)
+proxy: ""
+
+# 本地缓存设置
+# dir: 自定义缓存目录, 留空使用默认目录 %APPDATA%\wallpaper-tool\cache
+#      支持 Windows 环境变量, 如 %USERPROFILE%\Pictures\wallpapers
+#      修改后保存时会自动把旧目录图片迁移到新目录
+cache:
+  dir: ""
+  max_items: 20   # 最多保留张数(当前桌面图与锁屏图不清理)
+  max_days: 0     # 最大保存天数, 0 表示永久保留
+
+# Web 配置端口, 0 为自动(优先固定端口 25317, 被占用则随机); 仅监听 127.0.0.1
+web:
+  port: 0

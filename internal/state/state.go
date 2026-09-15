@@ -1,0 +1,93 @@
+// Package state 负责运行状态的持久化(state.json)。
+// 包含当前壁纸、历史、预取队列、锁屏目标等。
+package state
+
+import (
+	"encoding/json"
+	"os"
+	"sync"
+)
+
+// Item 表示一张壁纸。
+type Item struct {
+	ID      string `json:"id"`
+	FileURL string `json:"file_url,omitempty"` // 远端原图直链
+	Path    string `json:"path"`               // 本地缓存路径
+	PageURL string `json:"page_url,omitempty"` // wallhaven 页面地址
+}
+
+// State 顶层状态结构。
+type State struct {
+	Current          Item   `json:"current"`
+	LockCurrent      Item   `json:"lock_current"` // 当前锁屏壁纸(可与桌面不同)
+	History          []Item `json:"history"`      // 桌面壁纸历史
+	HistoryIndex     int    `json:"history_index"`
+	LockHistory      []Item `json:"lock_history"`      // 锁屏壁纸历史(独立存储)
+	LockHistoryIndex int    `json:"lock_history_index"`
+	Queue            []Item `json:"queue"`
+	Page             int    `json:"page"`
+	Seed             string `json:"seed"`
+	LockScreenTarget string `json:"lock_screen_target"`
+	TaskInstalled    bool   `json:"task_installed"`
+	Paused           bool   `json:"paused"`
+	WebPort          int    `json:"web_port"`
+	CacheDir         string `json:"cache_dir"` // 当前生效的缓存目录(用于目录变更时迁移)
+}
+
+// Store 带锁的状态存储。
+type Store struct {
+	mu   sync.Mutex
+	path string
+	st   State
+}
+
+// Load 从磁盘加载状态。文件不存在时返回空状态。
+// 解析失败时返回空状态与错误，由调用方记录。
+func Load(path string) (*Store, error) {
+	var st State
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := json.Unmarshal(data, &st); err != nil {
+			return &Store{path: path}, err
+		}
+	} else if !os.IsNotExist(err) {
+		return &Store{path: path}, err
+	}
+	if st.History == nil {
+		st.History = []Item{}
+	}
+	if st.Queue == nil {
+		st.Queue = []Item{}
+	}
+	return &Store{path: path, st: st}, nil
+}
+
+// Get 返回状态副本(切片做了深拷贝，避免并发问题)。
+func (s *Store) Get() State {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.st
+	c.History = append([]Item(nil), s.st.History...)
+	c.Queue = append([]Item(nil), s.st.Queue...)
+	return c
+}
+
+// Update 在锁内修改状态并立即持久化。
+func (s *Store) Update(fn func(*State)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fn(&s.st)
+	return s.saveLocked()
+}
+
+func (s *Store) saveLocked() error {
+	data, err := json.MarshalIndent(&s.st, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.path)
+}
