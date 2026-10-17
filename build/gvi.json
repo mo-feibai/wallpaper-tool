@@ -1,0 +1,23 @@
+{
+  "FixedFileInfo": {
+    "FileVersion": { "Major": 0, "Minor": 2, "Patch": 0, "Build": 0 },
+    "ProductVersion": { "Major": 0, "Minor": 2, "Patch": 0, "Build": 0 },
+    "FileFlagsMask": "3f",
+    "FileFlags": "00",
+    "FileOS": "040004",
+    "FileType": "01",
+    "FileSubType": "00"
+  },
+  "StringFileInfo": {
+    "CompanyName": "WallpaperTool",
+    "FileDescription": "壁纸工具 - 定时更换桌面与锁屏壁纸",
+    "FileVersion": "0.2.0",
+    "InternalName": "wallpaper-tool",
+    "OriginalFilename": "wallpaper-tool.exe",
+    "ProductName": "壁纸工具",
+    "ProductVersion": "0.2.0"
+  },
+  "VarFileInfo": {
+    "Translation": { "LangID": "0804", "CharsetID": "04B0" }
+  }
+}

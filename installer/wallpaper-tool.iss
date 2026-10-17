@@ -12,8 +12,9 @@ AppId={{8E5A2C31-6B7D-4F0E-9A44-2C1D53F0B7A1}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
-DefaultDirName={autopf}\WallpaperTool
-; PrivilegesRequired=lowest + {autopf} => 按用户安装到 %LOCALAPPDATA%\Programs, 全程无 UAC
+; 显式指定用户级目录: {autopf} 会随系统盘/管理员身份解析到意外位置(实测落到 D:\)
+DefaultDirName={localappdata}\Programs\WallpaperTool
+; 按用户安装, 安装/升级/卸载全程无 UAC
 PrivilegesRequired=lowest
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
