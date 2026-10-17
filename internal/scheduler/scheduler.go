@@ -137,6 +137,10 @@ func (s *Scheduler) Start() {
 				if err := s.applyNext(); err != nil {
 					s.setErr(err.Error())
 					s.log.Printf("自动换图失败: %v", err)
+				} else {
+					// 换图成功后清掉上次错误, 避免失败提示一直挂着
+					s.setErr("")
+					s.log.Printf("自动换图成功")
 				}
 			}
 		}
