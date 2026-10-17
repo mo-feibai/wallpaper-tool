@@ -19,8 +19,17 @@ function refreshImage(imgEl, url) {
   imgEl.src = url + "?t=" + Date.now();
 }
 
+// 页面背景就是当前壁纸: 模糊暗化后作为玻璃层的底, 换图时同步更新
+function syncBackdrop() {
+  document.documentElement.style.setProperty(
+    "--bg-image",
+    'url("/api/current-image?t=' + Date.now() + '")'
+  );
+}
+
 function fillForm(c) {
   cfgRev = c.revision || 0;
+  setTimeout(syncSelectLabels, 0);
   $("f-interval").value = c.interval_minutes;
   $("f-sorting").value = c.sorting;
   $("f-toprange").value = c.top_range;
@@ -124,6 +133,7 @@ async function loadStatus() {
     if (st.current.id && st.current.id !== lastDesktopId) {
       lastDesktopId = st.current.id;
       refreshImage($("preview"), "/api/current-image");
+      syncBackdrop();
     }
     // 锁屏预览: 有锁屏图时显示区块, ID 变化时重新拉图
     if (st.lock_current.id) {
@@ -138,8 +148,10 @@ async function loadStatus() {
     nextRunAt = st.next_run ? new Date(st.next_run) : null;
     if (st.last_error) {
       $("st-error").textContent = "最近错误: " + st.last_error;
+      $("st-error").hidden = false;
     } else {
       $("st-error").textContent = "";
+      $("st-error").hidden = true;
     }
     const link = $("cur-link");
     if (st.current.page_url) {
@@ -162,6 +174,7 @@ async function loadStatus() {
     // fetch 失败通常是服务正在重启; 端口固定时轮询会自动恢复连接
     $("st-error").textContent =
       "服务连接断开(可能正在重启), 恢复后将自动刷新; 若长时间无响应请通过托盘菜单重新打开配置页";
+    $("st-error").hidden = false;
   }
 }
 
@@ -188,6 +201,191 @@ function renderHistory(list, items, type) {
   });
 }
 
+// 自绘下拉: 原生 select 视觉隐藏但保留可访问性与取值, 菜单完全自绘。
+// 这样展开面板不再由系统绘制, 圆角/玻璃/高亮都能控制。
+const selMenuHosts = [];
+
+function enhanceSelect(sel) {
+  if (sel.dataset.enhanced) return;
+  sel.dataset.enhanced = "1";
+
+  const wrap = document.createElement("div");
+  wrap.className = "sel";
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.appendChild(sel);
+  sel.classList.add("sel-native");
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "sel-btn";
+  const label = document.createElement("span");
+  label.className = "sel-btn-label";
+  const caret = document.createElement("span");
+  caret.className = "sel-caret";
+  btn.appendChild(label);
+  btn.appendChild(caret);
+  wrap.appendChild(btn);
+
+  const menu = document.createElement("div");
+  menu.className = "sel-menu";
+  menu.setAttribute("role", "listbox");
+  wrap.appendChild(menu);
+  selMenuHosts.push(wrap);
+
+  const opts = [];
+  function buildOptions() {
+    menu.innerHTML = "";
+    opts.length = 0;
+    for (const opt of sel.options) {
+      if (opt.hidden) continue;
+      const item = document.createElement("div");
+      item.className = "sel-opt";
+      item.setAttribute("role", "option");
+      item.textContent = opt.textContent;
+      item.addEventListener("click", () => {
+        sel.value = opt.value;
+        sel.dispatchEvent(new Event("change"));
+        closeMenu();
+      });
+      menu.appendChild(item);
+      opts.push({ item, value: opt.value });
+    }
+    paint();
+  }
+
+  function paint() {
+    opts.forEach((o) => {
+      const on = o.value === sel.value;
+      o.item.classList.toggle("is-selected", on);
+      o.item.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    const cur = sel.options[sel.selectedIndex];
+    label.textContent = cur ? cur.textContent : "";
+  }
+
+  let activeIdx = -1;
+  function setActive(i) {
+    activeIdx = i;
+    opts.forEach((o, n) => o.item.classList.toggle("is-active", n === i));
+    if (i >= 0 && opts[i]) opts[i].item.scrollIntoView({ block: "nearest" });
+  }
+
+  function openMenu() {
+    closeAllMenus();
+    wrap.classList.add("is-open");
+    setActive(opts.findIndex((o) => o.value === sel.value));
+  }
+
+  function closeMenu() {
+    wrap.classList.remove("is-open");
+    setActive(-1);
+  }
+
+  btn.addEventListener("click", () => {
+    wrap.classList.contains("is-open") ? closeMenu() : openMenu();
+  });
+  sel.addEventListener("change", () => {
+    paint();
+    closeMenu();
+  });
+  btn.addEventListener("keydown", onKey);
+  sel.addEventListener("keydown", onKey);
+
+  function onKey(e) {
+    if (!wrap.classList.contains("is-open")) {
+      if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeMenu();
+      btn.focus();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActive(Math.min(activeIdx + 1, opts.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive(Math.max(activeIdx - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (opts[activeIdx]) opts[activeIdx].item.click();
+    }
+  }
+
+  buildOptions();
+  btn.tabIndex = 0;
+}
+
+function closeAllMenus() {
+  selMenuHosts.forEach((w) => w.classList.remove("is-open"));
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".sel")) closeAllMenus();
+});
+
+// 自绘数字步进器: 原生 spinner 由系统绘制不可控, 隐藏后自绘,
+// 加减行为仍走原生 stepUp/stepDown, 方向键与滚轮行为不变。
+function enhanceNumber(input) {
+  if (input.dataset.enhanced) return;
+  input.dataset.enhanced = "1";
+
+  const wrap = document.createElement("div");
+  wrap.className = "num-wrap";
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+
+  const step = document.createElement("div");
+  step.className = "num-step";
+  const up = document.createElement("button");
+  up.type = "button";
+  up.className = "num-btn num-up";
+  up.setAttribute("aria-label", "增加");
+  const down = document.createElement("button");
+  down.type = "button";
+  down.className = "num-btn num-down";
+  down.setAttribute("aria-label", "减少");
+  step.appendChild(up);
+  step.appendChild(down);
+  wrap.appendChild(step);
+
+  const sync = () => {
+    const v = input.valueAsNumber;
+    up.disabled = input.max !== "" && v >= Number(input.max);
+    down.disabled = input.min !== "" && v <= Number(input.min);
+  };
+  up.addEventListener("click", () => {
+    input.stepUp();
+    sync();
+  });
+  down.addEventListener("click", () => {
+    input.stepDown();
+    sync();
+  });
+  input.addEventListener("input", sync);
+  input.addEventListener("change", sync);
+  sync();
+}
+
+// fillForm 设置 select.value 后同步自绘按钮的文字
+function syncSelectLabels() {
+  document.querySelectorAll("select[data-enhanced]").forEach((sel) => {
+    const l = sel.parentNode.querySelector(".sel-btn-label");
+    if (!l) return;
+    const cur = sel.options[sel.selectedIndex];
+    l.textContent = cur ? cur.textContent : "";
+    sel.parentNode
+      .querySelectorAll(".sel-opt")
+      .forEach((item, i) => {
+        const on = sel.options[i] && sel.options[i].value === sel.value;
+        item.classList.toggle("is-selected", !!on);
+      });
+  });
+}
+
 async function loadConfig() {
   try {
     const c = await api("/api/config");
@@ -201,6 +399,7 @@ function showMsg(text, isErr) {
   const el = $("save-msg");
   el.textContent = text;
   el.className = isErr ? "error" : "msg";
+  el.hidden = !text;
 }
 
 async function saveConfig(ev) {
@@ -269,6 +468,9 @@ setInterval(() => {
   $("st-next").textContent = fmtCountdown(ms);
 }, 1000);
 
+document.querySelectorAll("select").forEach(enhanceSelect);
+document.querySelectorAll('input[type="number"]').forEach(enhanceNumber);
+syncSelectLabels();
 loadConfig();
 loadStatus();
 setInterval(loadStatus, 5000);

@@ -14,6 +14,7 @@ import (
 	"os"
 	"time"
 
+	"wallpaper-tool/internal/assets"
 	"wallpaper-tool/internal/autostart"
 	"wallpaper-tool/internal/config"
 	"wallpaper-tool/internal/elevate"
@@ -42,6 +43,16 @@ func New(sched *scheduler.Scheduler, st *state.Store, lg *log.Logger) *Server {
 // 在服务恢复后可通过轮询自动重连, 无需用户重新打开。
 const defaultPort = 25317
 
+// noCache 禁止静态资源被浏览器缓存。
+// embed.FS 的 ModTime 为零值, FileServer 不会发 Last-Modified, 浏览器会启用
+// 启发式缓存, 导致升级后配置页仍显示旧样式。
+func noCache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, must-revalidate")
+		h.ServeHTTP(w, r)
+	})
+}
+
 // Start 启动 HTTP 服务并返回实际绑定端口。
 // 配置端口为 0 时优先使用固定默认端口(被其他程序占用则回退随机端口)。
 func (s *Server) Start() (int, error) {
@@ -57,12 +68,13 @@ func (s *Server) Start() (int, error) {
 	mux.HandleFunc("GET /api/current-image", s.handleCurrentImage)
 	mux.HandleFunc("GET /api/lockscreen-image", s.handleLockScreenImage)
 	mux.HandleFunc("GET /api/history-image", s.handleHistoryImage)
+	mux.HandleFunc("GET /assets/icon.png", s.handleAppIcon)
 
 	sub, subErr := fs.Sub(staticFiles, "static")
 	if subErr != nil {
 		return 0, subErr
 	}
-	mux.Handle("/", http.FileServer(http.FS(sub)))
+	mux.Handle("/", noCache(http.FileServer(http.FS(sub))))
 
 	port := s.sched.Config().Web.Port
 	var ln net.Listener
@@ -269,6 +281,13 @@ func (s *Server) handleCurrentImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, st.Current.Path)
+}
+
+// handleAppIcon 返回内嵌的应用图标(PNG), 供配置页 logo 与 favicon 使用。
+func (s *Server) handleAppIcon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store, must-revalidate")
+	_, _ = w.Write(assets.Png())
 }
 
 // handleHistoryImage 按壁纸 ID 在历史中查找并返回其本地图片。

@@ -4,38 +4,46 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>壁纸工具配置</title>
+<link rel="icon" type="image/png" href="/assets/icon.png">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header>
-  <h1>壁纸工具</h1>
-  <span id="paused-badge" class="badge hidden">已暂停</span>
+<header class="topbar">
+  <div class="topbar-inner">
+    <img class="logo" src="/assets/icon.png" alt="" width="32" height="32">
+    <h1>壁纸工具</h1>
+    <span id="paused-badge" class="badge hidden">已暂停</span>
+  </div>
 </header>
 <main>
-  <section class="card">
+  <section class="card hero">
     <h2>当前状态</h2>
     <div class="status-grid">
-      <div class="preview">
-        <p class="preview-title">桌面壁纸</p>
-        <img id="preview" src="/api/current-image" alt="当前桌面壁纸预览">
-      </div>
-      <div class="preview" id="lock-preview-wrap" style="display:none">
-        <p class="preview-title">锁屏壁纸</p>
-        <img id="lock-preview" src="/api/lockscreen-image" alt="当前锁屏壁纸预览">
+      <div class="previews">
+        <div class="preview">
+          <p class="preview-title">桌面壁纸</p>
+          <img id="preview" src="/api/current-image" alt="当前桌面壁纸预览">
+        </div>
+        <div class="preview" id="lock-preview-wrap" style="display:none">
+          <p class="preview-title">锁屏壁纸</p>
+          <img id="lock-preview" src="/api/lockscreen-image" alt="当前锁屏壁纸预览">
+        </div>
       </div>
       <div class="info">
-        <p>桌面 ID: <span id="cur-id">-</span></p>
-        <p>锁屏 ID: <span id="lock-id">-</span></p>
-        <p>状态: <span id="st-paused">-</span></p>
-        <p>下次更换: <span id="st-next">-</span></p>
-        <p>锁屏任务: <span id="st-task">-</span></p>
-        <p id="st-error" class="error"></p>
+        <dl class="stats">
+          <div><dt>桌面</dt><dd id="cur-id" class="mono">-</dd></div>
+          <div><dt>锁屏</dt><dd id="lock-id" class="mono">-</dd></div>
+          <div><dt>状态</dt><dd id="st-paused">-</dd></div>
+          <div><dt>下次更换</dt><dd id="st-next" class="mono">-</dd></div>
+          <div><dt>锁屏任务</dt><dd id="st-task">-</dd></div>
+        </dl>
+        <p id="st-error" class="error" hidden></p>
         <div class="btn-row">
           <button id="btn-next">下一张</button>
           <button id="btn-prev">上一张</button>
           <button id="btn-pause">暂停</button>
         </div>
-        <p><a id="cur-link" href="#" target="_blank" rel="noopener">查看桌面壁纸页面</a></p>
+        <a id="cur-link" class="ghost-link" href="#" target="_blank" rel="noopener">在 wallhaven 查看这张</a>
       </div>
     </div>
   </section>
@@ -44,7 +52,7 @@
     <h2>设置</h2>
     <form id="cfg-form">
       <div class="grid">
-        <label>换图间隔(分钟)
+        <label>换图间隔 / 分钟
           <input type="number" id="f-interval" min="1" max="10080">
         </label>
         <label>排序方式
@@ -57,7 +65,7 @@
             <option value="relevance">相关度 relevance</option>
           </select>
         </label>
-        <label id="wrap-toprange">热门时间范围
+        <label id="wrap-toprange">热门范围
           <select id="f-toprange">
             <option value="1d">最近 1 天</option>
             <option value="3d">最近 3 天</option>
@@ -74,11 +82,11 @@
             <option value="asc">升序</option>
           </select>
         </label>
-        <label>关键词(可空)
-          <input type="text" id="f-query" placeholder="例如 landscape">
+        <label>关键词
+          <input type="text" id="f-query" placeholder="留空不限, 例 landscape">
         </label>
-        <label>最小分辨率(可空)
-          <input type="text" id="f-atleast" placeholder="1920x1080">
+        <label>最小分辨率
+          <input type="text" id="f-atleast" placeholder="留空不限, 例 1920x1080">
         </label>
         <label>宽高比方向
           <select id="f-orientation">
@@ -88,10 +96,10 @@
             <option value="custom">自定义</option>
           </select>
         </label>
-        <label id="wrap-ratios" style="display:none">宽高比(自定义, 可空)
-          <input type="text" id="f-ratios" placeholder="16x9 或 16x9,16x10">
+        <label id="wrap-ratios" style="display:none">宽高比(自定义)
+          <input type="text" id="f-ratios" placeholder="留空不限, 例 16x9,16x10">
         </label>
-        <label>桌面适配方式
+        <label>桌面适配
           <select id="f-fit">
             <option value="fill">填充 fill</option>
             <option value="fit">适应 fit</option>
@@ -101,46 +109,55 @@
             <option value="span">跨屏 span</option>
           </select>
         </label>
-        <label>wallhaven 代理(留空=自动跟随系统代理)
-          <input type="text" id="f-proxy" placeholder="例: http://127.0.0.1:20112">
+        <label>wallhaven 代理
+          <input type="text" id="f-proxy" placeholder="留空自动跟随系统代理">
         </label>
-        <label>缓存目录(留空=默认, 支持环境变量如 %USERPROFILE%\Pictures\wp)
-          <input type="text" id="f-cachedir" placeholder="留空使用默认目录">
+        <label>缓存目录
+          <input type="text" id="f-cachedir" placeholder="留空默认, 支持 %USERPROFILE%">
         </label>
-        <label>缓存数量上限
+        <label>缓存张数上限
           <input type="number" id="f-maxitems" min="1" max="5000">
         </label>
-        <label>最大保存天数(0=永久)
-          <input type="number" id="f-maxdays" min="0" max="36500">
+        <label title="0 表示永久保存">最大保存天数
+          <input type="number" id="f-maxdays" min="0" max="36500" placeholder="0=永久">
         </label>
-        <label>Web 端口(0=随机, 重启生效)
-          <input type="number" id="f-webport" min="0" max="65535">
+        <label title="0 表示自动选取, 修改后需重启程序">Web 端口
+          <input type="number" id="f-webport" min="0" max="65535" placeholder="0=自动">
         </label>
       </div>
       <div class="checks">
-        <span class="group">分类:</span>
-        <label><input type="checkbox" id="f-cat-general">综合 general</label>
-        <label><input type="checkbox" id="f-cat-anime">动漫 anime</label>
-        <label><input type="checkbox" id="f-cat-people">人物 people</label>
+        <span class="group">分类</span>
+        <div>
+          <label><input type="checkbox" id="f-cat-general">综合 general</label>
+          <label><input type="checkbox" id="f-cat-anime">动漫 anime</label>
+          <label><input type="checkbox" id="f-cat-people">人物 people</label>
+        </div>
       </div>
       <div class="checks">
-        <span class="group">内容分级(匿名仅支持 SFW/Sketchy):</span>
-        <label><input type="checkbox" id="f-purity-sfw">SFW</label>
-        <label><input type="checkbox" id="f-purity-sketchy">Sketchy</label>
+        <span class="group">内容分级</span>
+        <div>
+          <label><input type="checkbox" id="f-purity-sfw">SFW</label>
+          <label><input type="checkbox" id="f-purity-sketchy">Sketchy</label>
+        </div>
       </div>
       <div class="checks">
-        <span class="group">应用目标:</span>
-        <label><input type="checkbox" id="f-target-desktop">桌面壁纸</label>
-        <label><input type="checkbox" id="f-target-lockscreen">锁屏壁纸(首次开启需 UAC 确认)</label>
+        <span class="group">应用目标</span>
+        <div>
+          <label><input type="checkbox" id="f-target-desktop">桌面壁纸</label>
+          <label><input type="checkbox" id="f-target-lockscreen">锁屏壁纸(首次开启需 UAC 确认)</label>
+        </div>
       </div>
       <div class="checks">
-        <label><input type="checkbox" id="f-autostart">开机自启</label>
+        <span class="group">系统</span>
+        <div>
+          <label><input type="checkbox" id="f-autostart">开机自启</label>
+        </div>
       </div>
       <div class="btn-row">
         <button type="submit" id="btn-save" class="primary">保存设置</button>
         <button type="button" id="btn-remove-lockscreen">移除锁屏策略(需 UAC)</button>
       </div>
-      <p id="save-msg" class="msg"></p>
+      <p id="save-msg" class="msg" hidden></p>
     </form>
   </section>
 
@@ -148,7 +165,7 @@
     <h2>桌面壁纸历史(缓存中最近 <span id="history-count">0</span> 张)</h2>
     <ul id="history" class="history"></ul>
 
-    <h2>锁屏壁纸历史(缓存中最近 <span id="lock-history-count">0</span> 张)</h2>
+    <h2 style="margin-top:26px">锁屏壁纸历史(缓存中最近 <span id="lock-history-count">0</span> 张)</h2>
     <ul id="lock-history" class="history"></ul>
   </section>
 </main>
