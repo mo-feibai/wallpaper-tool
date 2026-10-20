@@ -32,7 +32,9 @@ const (
 	apiURL     = "https://api.github.com/repos/" + RepoOwner + "/" + RepoName + "/tags"
 	releaseURL = "https://github.com/" + RepoOwner + "/" + RepoName + "/releases/latest"
 
-	cacheTTL = 12 * time.Hour
+	// 缓存时长: 未认证 API 限额 60 次/小时/IP, 每小时查一次完全够用,
+	// 还能让新版本提示在 1 小时内送达。条件请求命中 304 不消耗限额。
+	cacheTTL = time.Hour
 )
 
 // Info 描述一次更新检查的结果。
