@@ -167,11 +167,40 @@ async function loadVersion() {
   }
 }
 
+// 渲染一张壁纸的信息: 来源徽章 + ID + 标题/摄影师署名 + 原图链接。
+// 桌面与锁屏各调用一次, 两个来源都能看到自己的出处。
+function applyWallInfo(item, badgeId, idId, noteId, linkId) {
+  const src = item.source || "wallhaven";
+  const label = src === "unsplash" ? "Unsplash" : "wallhaven";
+  const badge = $(badgeId);
+  badge.textContent = label;
+  badge.className = "src-badge src-" + src;
+  $(idId).textContent = item.id || "-";
+  // 备注: 优先显示摄影师署名(Unsplash 规范要求), 否则显示图片标题
+  const note = $(noteId);
+  if (item.author) {
+    note.textContent = "Photo by " + item.author + " on Unsplash";
+    note.style.display = "";
+  } else if (item.title) {
+    note.textContent = item.title;
+    note.style.display = "";
+  } else {
+    note.textContent = "";
+    note.style.display = "none";
+  }
+  const link = $(linkId);
+  if (item.page_url) {
+    link.href = item.page_url;
+    link.textContent = "在 " + label + " 查看原图";
+    link.style.display = "";
+  } else {
+    link.style.display = "none";
+  }
+}
+
 async function loadStatus() {
   try {
     const st = await api("/api/status");
-    $("cur-id").textContent = st.current.id || "-";
-    $("lock-id").textContent = st.lock_current.id || "-";
     // 桌面预览: ID 变化时才重新拉图, 避免无谓刷新
     if (st.current.id && st.current.id !== lastDesktopId) {
       lastDesktopId = st.current.id;
@@ -181,11 +210,18 @@ async function loadStatus() {
     // 锁屏预览: 有锁屏图时显示区块, ID 变化时重新拉图
     if (st.lock_current.id) {
       $("lock-preview-wrap").style.display = "";
+      $("info-lock").style.display = "";
       if (st.lock_current.id !== lastLockId) {
         lastLockId = st.lock_current.id;
         refreshImage($("lock-preview"), "/api/lockscreen-image");
       }
+    } else {
+      $("lock-preview-wrap").style.display = "none";
+      $("info-lock").style.display = "none";
     }
+    // 壁纸信息: 两个目标各自标注来源
+    applyWallInfo(st.current || {}, "badge-desktop", "cur-id", "cur-note", "cur-link");
+    applyWallInfo(st.lock_current || {}, "badge-lock", "lock-id", "lock-note", "lock-link");
     $("st-paused").textContent = st.paused ? "已暂停" : "运行中";
     $("st-task").textContent = st.task_installed ? "已安装" : "未安装";
     nextRunAt = st.next_run ? new Date(st.next_run) : null;
@@ -195,24 +231,6 @@ async function loadStatus() {
     } else {
       $("st-error").textContent = "";
       $("st-error").hidden = true;
-    }
-    const link = $("cur-link");
-    if (st.current.page_url) {
-      link.href = st.current.page_url;
-      link.textContent =
-        st.current.source === "unsplash" ? "在 Unsplash 查看这张" : "在 wallhaven 查看这张";
-      link.style.display = "";
-    } else {
-      link.style.display = "none";
-    }
-    // Unsplash 要求给摄影师署名
-    const author = $("cur-author");
-    if (st.current.author) {
-      author.textContent = "Photo by " + st.current.author + " on Unsplash";
-      author.href = st.current.page_url || "#";
-      author.style.display = "";
-    } else {
-      author.style.display = "none";
     }
     $("btn-pause").textContent = st.paused ? "继续" : "暂停";
     $("paused-badge").classList.toggle("hidden", !st.paused);
@@ -249,7 +267,16 @@ function renderHistory(list, items, type) {
     img.onerror = function () { li.style.display = "none"; };
     const meta = document.createElement("div");
     meta.className = "meta";
-    meta.textContent = it.id;
+    // 来源徽章: 桌面与锁屏历史混排时也能一眼看出出处
+    const badge = document.createElement("span");
+    const src = it.source || "wallhaven";
+    badge.className = "src-badge src-xs src-" + src;
+    badge.textContent = src === "unsplash" ? "Unsplash" : "wallhaven";
+    meta.appendChild(badge);
+    const idEl = document.createElement("span");
+    idEl.className = "mono";
+    idEl.textContent = it.id;
+    meta.appendChild(idEl);
     li.appendChild(img);
     li.appendChild(meta);
     list.appendChild(li);

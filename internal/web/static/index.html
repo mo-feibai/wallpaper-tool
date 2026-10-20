@@ -36,21 +36,43 @@
         </div>
       </div>
       <div class="info">
+        <!-- 壁纸信息: 桌面 / 锁屏各自独立, 标明来源 -->
+        <div class="wall-info">
+          <div class="wall-info-head">
+            <span class="wall-label">桌面壁纸</span>
+            <span class="src-badge" id="badge-desktop">-</span>
+          </div>
+          <p class="wall-id mono" id="cur-id">-</p>
+          <p class="wall-note" id="cur-note"></p>
+          <a id="cur-link" class="ghost-link" href="#" target="_blank" rel="noopener">查看原图</a>
+        </div>
+        <div class="wall-info" id="info-lock" style="display:none">
+          <div class="wall-info-head">
+            <span class="wall-label">锁屏壁纸</span>
+            <span class="src-badge" id="badge-lock">-</span>
+          </div>
+          <p class="wall-id mono" id="lock-id">-</p>
+          <p class="wall-note" id="lock-note"></p>
+          <a id="lock-link" class="ghost-link" href="#" target="_blank" rel="noopener">查看原图</a>
+        </div>
+
+        <!-- 运行状态 -->
         <dl class="stats">
-          <div><dt>桌面</dt><dd id="cur-id" class="mono">-</dd></div>
-          <div><dt>锁屏</dt><dd id="lock-id" class="mono">-</dd></div>
           <div><dt>状态</dt><dd id="st-paused">-</dd></div>
           <div><dt>下次更换</dt><dd id="st-next" class="mono">-</dd></div>
           <div><dt>锁屏任务</dt><dd id="st-task">-</dd></div>
         </dl>
-        <p id="st-error" class="error" hidden></p>
-        <div class="btn-row">
-          <button id="btn-next">下一张</button>
-          <button id="btn-prev">上一张</button>
-          <button id="btn-pause">暂停</button>
+
+        <!-- 换图操作: 与壁纸信息分开 -->
+        <div class="actions">
+          <span class="actions-label">换壁纸</span>
+          <div class="btn-row">
+            <button id="btn-next">下一张</button>
+            <button id="btn-prev">上一张</button>
+            <button id="btn-pause">暂停</button>
+          </div>
         </div>
-        <a id="cur-link" class="ghost-link" href="#" target="_blank" rel="noopener">在 wallhaven 查看这张</a>
-        <a id="cur-author" class="ghost-link" href="#" target="_blank" rel="noopener" style="display:none;margin-left:14px"></a>
+        <p id="st-error" class="error" hidden></p>
       </div>
     </div>
   </section>

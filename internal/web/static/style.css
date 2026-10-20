@@ -243,6 +243,88 @@ main {
     0 18px 40px -22px rgba(0, 0, 0, 0.9);
 }
 
+/* ---------- 壁纸信息块 ---------- */
+
+/* 桌面 / 锁屏各自一个信息块, 用细线分隔, 与"换壁纸"操作区区分开 */
+.wall-info {
+  padding: 12px 0 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wall-info:first-child {
+  padding-top: 0;
+}
+
+.wall-info-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.wall-label {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+/* 来源徽章: wallhaven 与 Unsplash 各自配色, 一眼区分 */
+.src-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.src-wallhaven {
+  color: #cfc7ff;
+  background: rgba(139, 124, 255, 0.16);
+  border-color: rgba(139, 124, 255, 0.40);
+}
+
+.src-unsplash {
+  color: #a9f0dd;
+  background: rgba(95, 227, 192, 0.14);
+  border-color: rgba(95, 227, 192, 0.40);
+}
+
+.src-xs {
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.wall-id {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.wall-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
+
+/* 换壁纸操作区: 与壁纸信息用分隔线隔开 */
+.actions {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.actions-label {
+  display: block;
+  margin-bottom: 9px;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
 .stats {
   margin: 0;
   display: grid;
@@ -658,6 +740,9 @@ input[type="checkbox"] {
 }
 
 .history .meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 9px;
   font-size: 12px;
   font-weight: 500;
