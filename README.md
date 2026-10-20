@@ -16,7 +16,8 @@ Windows 桌面壁纸自动更换工具。从 [Wallhaven](https://wallhaven.cc) �
 - **本地缓存与历史**：桌面 / 锁屏各保留最近 50 条历史，支持上一张 / 下一张、暂停 / 继续
 - **缓存清理策略**：按最大张数、按最大保存天数（当前桌面图与锁屏图不清理）
 - **系统托盘**：下一张 / 上一张 / 暂停 / 打开配置 / 打开壁纸文件夹 / 退出
-- **本地 Web 配置页**：内嵌于二进制，仅监听 `127.0.0.1`，实时预览与历史
+- **本地 Web 配置页**：内嵌于二进制，仅监听 `127.0.0.1`，实时预览与历史；配置按数据源分组，滚动流畅
+- **版本与更新提示**：页脚显示当前版本；比对 GitHub 仓库的 tag，发现新版本时顶部提示并可跳转下载
 - **开机自启**：写入 `HKCU\...\Run`，无需管理员权限
 - **健壮性**：单实例保护；配置版本号防止长期未刷新的旧页面覆盖新配置
 
@@ -33,16 +34,19 @@ Windows 桌面壁纸自动更换工具。从 [Wallhaven](https://wallhaven.cc) �
 需要 Go 1.26+：
 
 ```powershell
-go build -trimpath -ldflags "-s -w -H=windowsgui" -o wallpaper-tool.exe .
+go build -trimpath -ldflags "-s -w -H=windowsgui -X wallpaper-tool/internal/version.Version=0.4.0" -o wallpaper-tool.exe .
 ```
 
 打包安装包（需 Inno Setup 7）：
 
 ```powershell
-.\build-installer.ps1 -Version 0.2.0
+.\build-installer.ps1 -Version 0.4.0
 ```
 
-产物输出到 `dist\WallpaperTool-setup-<version>.exe`。
+产物输出到 `dist\WallpaperTool-setup-<version>.exe`。版本号同时写入 exe 的文件属性、页脚显示与更新检查。
+
+> 发布会话：完成改动后 `git tag -a v0.4.0 -m "..." && git push origin v0.4.0`，
+> 程序会比对 GitHub 上的 `v*` tag 提示新版本（未认证 API 限额 60 次/小时，本地缓存 12 小时并使用 ETag 条件请求）。
 
 ## 使用
 
@@ -99,6 +103,7 @@ go build -trimpath -ldflags "-s -w -H=windowsgui" -o wallpaper-tool.exe .
 | `cache/` | 壁纸缓存（可用 `cache.dir` 改到别处） |
 | `lockscreen_target.txt` | 待应用的锁屏图片路径，供高权限计划任务读取 |
 | `icon.png` | 通知图标（启动时写出） |
+| `update_cache.json` | 更新检查缓存（ETag 与最近一次检查时间） |
 
 ## Web API
 
@@ -117,6 +122,7 @@ go build -trimpath -ldflags "-s -w -H=windowsgui" -o wallpaper-tool.exe .
 | GET | `/api/current-image` | 当前桌面壁纸图片 |
 | GET | `/api/lockscreen-image` | 当前锁屏壁纸图片 |
 | GET | `/api/history-image?id=<id>` | 指定历史壁纸图片 |
+| GET | `/api/version` | 当前版本与 GitHub 最新 tag（更新提示） |
 
 ## 工作原理
 
@@ -158,6 +164,8 @@ main.go ──┬─ tray       系统托盘菜单
     ├── state/                  运行状态持久化
     ├── tray/                   系统托盘
     ├── unsplash/               Unsplash API 客户端
+    ├── update/                 GitHub tag 版本检查
+    ├── version/                版本号与版本比较
     ├── wallhaven/              Wallhaven API 客户端
     ├── wallpaper/              桌面 / 锁屏壁纸应用
     └── web/                    本地 Web 配置服务（含 static 前端）
