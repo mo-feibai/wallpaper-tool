@@ -1,6 +1,6 @@
 //go:build windows
 
-package wallhaven
+package netproxy
 
 import (
 	"net/url"
@@ -17,10 +17,10 @@ var (
 	sysProxyChecked time.Time
 )
 
-// systemProxy 读取 Windows 系统代理(IE/WinINET 设置, 各类代理客户端都会写入)。
+// SystemProxy 读取 Windows 系统代理(IE/WinINET 设置, 各类代理客户端都会写入)。
 // 读取结果缓存 60 秒, 避免每次请求都查注册表。
 // 返回 nil 表示系统未启用代理。
-func systemProxy() *url.URL {
+func SystemProxy() *url.URL {
 	sysProxyMu.Lock()
 	defer sysProxyMu.Unlock()
 	if time.Since(sysProxyChecked) < 60*time.Second {

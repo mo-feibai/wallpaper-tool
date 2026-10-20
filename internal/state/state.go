@@ -11,9 +11,20 @@ import (
 // Item 表示一张壁纸。
 type Item struct {
 	ID      string `json:"id"`
-	FileURL string `json:"file_url,omitempty"` // 远端原图直链
-	Path    string `json:"path"`               // 本地缓存路径
-	PageURL string `json:"page_url,omitempty"` // wallhaven 页面地址
+	Source  string `json:"source,omitempty"`    // 数据源名(wallhaven/unsplash)
+	FileURL string `json:"file_url,omitempty"`  // 远端原图直链
+	Path    string `json:"path"`                // 本地缓存路径
+	PageURL string `json:"page_url,omitempty"`  // 详情页地址
+	Author  string `json:"author,omitempty"`    // 摄影师署名
+	Title   string `json:"title,omitempty"`     // 标题或描述
+}
+
+// Cursor 记录某个目标的预取队列与分页状态。
+// 桌面与锁屏各自维护一份, 因为两者可能使用不同数据源, 分页互不相干。
+type Cursor struct {
+	Queue []Item `json:"queue"`
+	Page  int    `json:"page"`
+	Seed  string `json:"seed"`
 }
 
 // State 顶层状态结构。
@@ -24,14 +35,18 @@ type State struct {
 	HistoryIndex     int    `json:"history_index"`
 	LockHistory      []Item `json:"lock_history"`      // 锁屏壁纸历史(独立存储)
 	LockHistoryIndex int    `json:"lock_history_index"`
-	Queue            []Item `json:"queue"`
-	Page             int    `json:"page"`
-	Seed             string `json:"seed"`
+	Desktop          Cursor `json:"desktop"` // 桌面目标预取队列
+	Lock             Cursor `json:"lock"`    // 锁屏目标预取队列
 	LockScreenTarget string `json:"lock_screen_target"`
 	TaskInstalled    bool   `json:"task_installed"`
 	Paused           bool   `json:"paused"`
 	WebPort          int    `json:"web_port"`
 	CacheDir         string `json:"cache_dir"` // 当前生效的缓存目录(用于目录变更时迁移)
+
+	// 旧版本状态文件的扁平队列字段, 加载时迁移到 Desktop, 写回时不再输出。
+	LegacyQueue []Item `json:"queue,omitempty"`
+	LegacyPage  int    `json:"page,omitempty"`
+	LegacySeed  string `json:"seed,omitempty"`
 }
 
 // Store 带锁的状态存储。
@@ -56,8 +71,21 @@ func Load(path string) (*Store, error) {
 	if st.History == nil {
 		st.History = []Item{}
 	}
-	if st.Queue == nil {
-		st.Queue = []Item{}
+	if st.LockHistory == nil {
+		st.LockHistory = []Item{}
+	}
+	// 旧版本把队列平铺在顶层, 迁移到桌面目标队列。
+	if st.Desktop.Queue == nil && st.LegacyQueue != nil {
+		st.Desktop = Cursor{Queue: st.LegacyQueue, Page: st.LegacyPage, Seed: st.LegacySeed}
+	}
+	st.LegacyQueue = nil
+	st.LegacyPage = 0
+	st.LegacySeed = ""
+	if st.Desktop.Queue == nil {
+		st.Desktop.Queue = []Item{}
+	}
+	if st.Lock.Queue == nil {
+		st.Lock.Queue = []Item{}
 	}
 	return &Store{path: path, st: st}, nil
 }
@@ -68,7 +96,9 @@ func (s *Store) Get() State {
 	defer s.mu.Unlock()
 	c := s.st
 	c.History = append([]Item(nil), s.st.History...)
-	c.Queue = append([]Item(nil), s.st.Queue...)
+	c.LockHistory = append([]Item(nil), s.st.LockHistory...)
+	c.Desktop.Queue = append([]Item(nil), s.st.Desktop.Queue...)
+	c.Lock.Queue = append([]Item(nil), s.st.Lock.Queue...)
 	return c
 }
 

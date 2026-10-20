@@ -43,6 +43,19 @@ type Cache struct {
 	MaxDays  int    `yaml:"max_days" json:"max_days"`
 }
 
+// 可用数据源名。
+const (
+	SourceWallhaven = "wallhaven"
+	SourceUnsplash  = "unsplash"
+)
+
+// SourceConfig 指定各目标使用的数据源。
+// 桌面与锁屏可以分别选择不同的数据源。
+type SourceConfig struct {
+	Desktop    string `yaml:"desktop" json:"desktop"`
+	LockScreen string `yaml:"lock_screen" json:"lock_screen"`
+}
+
 // Web Web 配置服务设置。
 type Web struct {
 	Port int `yaml:"port" json:"port"` // 0 表示随机空闲端口
@@ -54,9 +67,16 @@ type Web struct {
 type Config struct {
 	Revision int `yaml:"revision" json:"revision"`
 
-	// Proxy 访问 wallhaven 的代理地址, 例 http://127.0.0.1:20112。
+	// Proxy 访问数据源的代理地址, 例 http://127.0.0.1:20112。
 	// 留空自动使用 Windows 系统代理(浏览器同款), 再退回环境变量, 最后直连。
 	Proxy string `yaml:"proxy" json:"proxy"`
+
+	// Sources 各目标使用的数据源。
+	Sources SourceConfig `yaml:"sources" json:"sources"`
+
+	// UnsplashKey Unsplash Access Key, 仅在选择 unsplash 数据源时需要。
+	// 属于凭据, 不回显到 Web 接口, 也不写进日志。
+	UnsplashKey string `yaml:"unsplash_key" json:"unsplash_key"`
 
 	IntervalMinutes int `yaml:"interval_minutes" json:"interval_minutes"`
 	Categories      Categories `yaml:"categories" json:"categories"`
@@ -85,6 +105,7 @@ func Default() Config {
 		Order:           "desc",
 		TopRange:        "1M",
 		AtLeast:         "1920x1080",
+		Sources:         SourceConfig{Desktop: SourceWallhaven, LockScreen: SourceWallhaven},
 		Targets:         Targets{Desktop: true, LockScreen: false},
 		DesktopFit:      "fill",
 		Cache:           Cache{MaxItems: 20},
@@ -103,6 +124,11 @@ var validTopRange = map[string]bool{
 
 var validFit = map[string]bool{
 	"fill": true, "fit": true, "stretch": true, "center": true, "tile": true, "span": true,
+}
+
+// validSource 判断数据源名是否受支持。
+func validSource(name string) bool {
+	return name == SourceWallhaven || name == SourceUnsplash
 }
 
 var resRe = regexp.MustCompile(`^[0-9]{2,5}x[0-9]{2,5}$`)
@@ -133,6 +159,13 @@ func (c *Config) Sanitize() {
 	}
 	c.Query = strings.TrimSpace(c.Query)
 	c.Proxy = strings.TrimSpace(c.Proxy)
+	c.UnsplashKey = strings.TrimSpace(c.UnsplashKey)
+	if !validSource(c.Sources.Desktop) {
+		c.Sources.Desktop = SourceWallhaven
+	}
+	if !validSource(c.Sources.LockScreen) {
+		c.Sources.LockScreen = SourceWallhaven
+	}
 	c.AtLeast = normalizeSize(c.AtLeast)
 	c.Ratios = normalizeRatioList(c.Ratios)
 	if c.Orientation != "landscape" && c.Orientation != "portrait" {

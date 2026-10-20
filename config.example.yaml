@@ -43,13 +43,24 @@ targets:
   desktop: true
   lock_screen: false   # 首次开启会弹一次 UAC 注册计划任务, 之后静默换图
 
+# 各目标使用的数据源: wallhaven | unsplash
+# 桌面与锁屏可以分别选择不同的数据源, 两者使用各自的预取队列
+sources:
+  desktop: wallhaven
+  lock_screen: wallhaven
+
+# Unsplash Access Key, 仅在选择 unsplash 数据源时需要
+# 获取方式: https://unsplash.com/developers 注册应用后可见
+# 属于凭据: 不回显到配置页, 不写进日志, 只随请求头发送
+unsplash_key: ""
+
 # 桌面适配方式: fill | fit | stretch | center | tile | span
 desktop_fit: "fill"
 
 # 开机自启(写 HKCU Run 键, 无需管理员)
 autostart: false
 
-# 访问 wallhaven 的代理地址, 例 http://127.0.0.1:20112
+# 访问数据源的代理地址, 例 http://127.0.0.1:20112
 # 留空自动使用 Windows 系统代理(与浏览器一致), 再退回环境变量, 最后直连
 # 说明: 走代理时域名由代理远端解析, 可避开本机 DNS 污染(TUN 模式同理)
 proxy: ""

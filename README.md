@@ -1,15 +1,16 @@
 # 壁纸工具 WallpaperTool
 
-Windows 桌面壁纸自动更换工具。从 [Wallhaven](https://wallhaven.cc) 匿名 API 拉取图片，按设定间隔自动切换桌面与锁屏壁纸；常驻系统托盘，并提供一个仅监听本机的 Web 配置页。
+Windows 桌面壁纸自动更换工具。从 [Wallhaven](https://wallhaven.cc) 匿名 API 与 [Unsplash](https://unsplash.com) 官方 API 拉取图片，按设定间隔自动切换桌面与锁屏壁纸；常驻系统托盘，并提供一个仅监听本机的 Web 配置页。
 
 - 语言 / 平台：Go + Windows
 - 许可证：MIT
-- 依赖接口：[wallhaven.cc/help/api](https://wallhaven.cc/help/api)
+- 依赖接口：[wallhaven.cc/help/api](https://wallhaven.cc/help/api)、[Unsplash API](https://unsplash.com/documentation)
 
 ## 功能特性
 
 - **定时换图**：间隔 1 分钟 ~ 7 天，保存后立即生效
 - **双目标**：桌面与锁屏可分别开启；锁屏首次启用仅弹一次 UAC，之后静默更换
+- **双数据源**：桌面与锁屏可各自选择 Wallhaven 或 Unsplash，两者使用独立预取队列
 - **Wallhaven 筛选**：分类、内容分级、关键词、排序、Top 时间范围、最小分辨率、宽高比 / 方向
 - **代理支持**：留空时自动依次尝试 Windows 系统代理 → 环境变量 → 直连，也可手动填写
 - **本地缓存与历史**：桌面 / 锁屏各保留最近 50 条历史，支持上一张 / 下一张、暂停 / 继续
@@ -76,6 +77,8 @@ go build -trimpath -ldflags "-s -w -H=windowsgui" -o wallpaper-tool.exe .
 | `orientation` | 方向：`landscape` / `portrait`，非空时优先于 `ratios` | `landscape` |
 | `ratios` | 自定义宽高比，逗号分隔，如 `16x9,16x10` | 空 |
 | `targets.desktop` / `lock_screen` | 应用目标：桌面 / 锁屏 | `true` / `false` |
+| `sources.desktop` / `lock_screen` | 各目标的数据源：`wallhaven` / `unsplash` | `wallhaven` |
+| `unsplash_key` | Unsplash Access Key，仅 Unsplash 源需要；不回显、不入日志 | 空 |
 | `desktop_fit` | 桌面适配：`fill` / `fit` / `stretch` / `center` / `tile` / `span` | `fill` |
 | `autostart` | 开机自启（HKCU Run，无需管理员） | `false` |
 | `proxy` | 访问 Wallhaven 的代理，如 `http://127.0.0.1:20112`；留空自动探测 | 空 |
@@ -120,9 +123,11 @@ go build -trimpath -ldflags "-s -w -H=windowsgui" -o wallpaper-tool.exe .
 ```
 main.go ──┬─ tray       系统托盘菜单
           ├─ scheduler  定时换图编排：预取队列 / 下载 / 应用 / 历史与清理
-          │    ├─ wallhaven  匿名 API 客户端（搜索、下载；代理与限流处理）
+          │    ├─ source      数据源统一接口（Search / Download）
+          │    │    ├─ wallhaven  匿名 API 客户端（搜索、下载；代理与限流处理）
+          │    │    └─ unsplash  官方 API 客户端（Client-ID 认证、下载跟踪、署名）
           │    ├─ wallpaper  写入桌面壁纸；锁屏经计划任务提权
-          │    └─ state      状态持久化
+          │    └─ state      状态持久化（桌面 / 锁屏各自队列与历史）
           ├─ web        本地配置服务（静态页 go:embed 内嵌）
           └─ elevate    锁屏计划任务：runas 提权注册 + schtasks 静默触发
 ```
@@ -144,12 +149,15 @@ main.go ──┬─ tray       系统托盘菜单
     ├── config/                 配置定义、默认值、校验与读写
     ├── elevate/                UAC 提权与锁屏计划任务
     ├── logging/                日志
+    ├── netproxy/               统一代理解析（显式 > 系统代理 > 环境变量）
     ├── notify/                 系统通知身份
     ├── paths/                  数据目录与文件路径
     ├── scheduler/              定时换图与缓存清理
     ├── singleinstance/         单实例保护
+    ├── source/                 数据源统一接口与公共下载逻辑
     ├── state/                  运行状态持久化
     ├── tray/                   系统托盘
+    ├── unsplash/               Unsplash API 客户端
     ├── wallhaven/              Wallhaven API 客户端
     ├── wallpaper/              桌面 / 锁屏壁纸应用
     └── web/                    本地 Web 配置服务（含 static 前端）
@@ -168,6 +176,9 @@ main.go ──┬─ tray       系统托盘菜单
 
 - 仅支持 Windows。
 - 使用 Wallhaven **匿名** API，因此不支持 NSFW 内容；`purity` 仅 `sfw` / `sketchy`。
+- Unsplash 源需要 Access Key（[注册](https://unsplash.com/developers)）；demo 模式限流 50 次/小时，本程序一次预取 30 张，实际消耗约 3 次/小时。
+- Unsplash 源会在配置页展示摄影师署名，以满足其 API 使用规范。
+- Access Key 只随请求头发送，不进 URL、不写日志、不回显到配置页（配置页仅显示"已配置"）。
 - 更换锁屏需要一次管理员授权（注册计划任务）；桌面壁纸无需管理员。
 - 配置页固定优先使用端口 `25317`，被占用时回退随机端口。
 

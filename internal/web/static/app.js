@@ -30,6 +30,16 @@ function syncBackdrop() {
 function fillForm(c) {
   cfgRev = c.revision || 0;
   setTimeout(syncSelectLabels, 0);
+  // 数据源
+  $("f-src-desktop").value = (c.sources && c.sources.desktop) || "wallhaven";
+  $("f-src-lock").value = (c.sources && c.sources.lock_screen) || "wallhaven";
+  // 凭据不回显: 输入框留空, 留空提交表示保持原值
+  $("f-unsplash-key").value = "";
+  $("f-unsplash-key").placeholder = c.unsplash_key_set
+    ? "已配置(留空保持不变), 输入新值则覆盖"
+    : "输入 Access Key";
+  clearKeyFlag = false;
+  updateSourceVisibility();
   $("f-interval").value = c.interval_minutes;
   $("f-sorting").value = c.sorting;
   $("f-toprange").value = c.top_range;
@@ -62,6 +72,12 @@ function collectForm() {
   return {
     revision: cfgRev,
     proxy: $("f-proxy").value.trim(),
+    sources: {
+      desktop: $("f-src-desktop").value,
+      lock_screen: $("f-src-lock").value,
+    },
+    unsplash_key: $("f-unsplash-key").value.trim(),
+    clear_unsplash_key: clearKeyFlag,
     interval_minutes: parseInt($("f-interval").value, 10) || 30,
     categories: {
       general: $("f-cat-general").checked,
@@ -123,6 +139,15 @@ function fmtCountdown(ms) {
 }
 
 let cfgRev = 0;
+let clearKeyFlag = false;
+
+// 任一目标选用 unsplash 时才显示 Access Key 输入框
+function updateSourceVisibility() {
+  const needKey =
+    $("f-src-desktop").value === "unsplash" ||
+    $("f-src-lock").value === "unsplash";
+  $("wrap-unsplash-key").style.display = needKey ? "" : "none";
+}
 
 async function loadStatus() {
   try {
@@ -156,9 +181,20 @@ async function loadStatus() {
     const link = $("cur-link");
     if (st.current.page_url) {
       link.href = st.current.page_url;
+      link.textContent =
+        st.current.source === "unsplash" ? "在 Unsplash 查看这张" : "在 wallhaven 查看这张";
       link.style.display = "";
     } else {
       link.style.display = "none";
+    }
+    // Unsplash 要求给摄影师署名
+    const author = $("cur-author");
+    if (st.current.author) {
+      author.textContent = "Photo by " + st.current.author + " on Unsplash";
+      author.href = st.current.page_url || "#";
+      author.style.display = "";
+    } else {
+      author.style.display = "none";
     }
     $("btn-pause").textContent = st.paused ? "继续" : "暂停";
     $("paused-badge").classList.toggle("hidden", !st.paused);
@@ -453,6 +489,15 @@ async function removeLockScreen() {
 $("cfg-form").addEventListener("submit", saveConfig);
 $("f-sorting").addEventListener("change", updateTopRangeVisible);
 $("f-orientation").addEventListener("change", updateRatioControls);
+$("f-src-desktop").addEventListener("change", updateSourceVisibility);
+$("f-src-lock").addEventListener("change", updateSourceVisibility);
+$("btn-clear-key").addEventListener("click", () => {
+  if (!confirm("确定清除已保存的 Unsplash Access Key 吗?")) return;
+  clearKeyFlag = true;
+  $("f-unsplash-key").value = "";
+  $("f-unsplash-key").placeholder = "保存后将被清除";
+  showMsg("已标记清除, 点击保存设置生效", false);
+});
 $("preview").onerror = function () { this.style.display = "none"; };
 $("lock-preview").onerror = function () { this.style.display = "none"; };
 $("btn-next").addEventListener("click", (e) => action("/api/next", e.target));

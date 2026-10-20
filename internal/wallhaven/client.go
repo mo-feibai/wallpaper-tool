@@ -16,25 +16,27 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"wallpaper-tool/internal/config"
+	"wallpaper-tool/internal/netproxy"
+	"wallpaper-tool/internal/source"
 )
 
 const baseURL = "https://wallhaven.cc/api/v1"
-const userAgent = "WallpaperTool/0.1"
+const userAgent = "WallpaperTool/0.2"
 
-// Item 搜索结果中的单个壁纸条目。
-type Item struct {
+// Name 数据源名。
+const Name = "wallhaven"
+
+// photo 搜索结果中的单个壁纸条目(API 原始结构)。
+type photo struct {
 	ID         string `json:"id"`
 	URL        string `json:"url"`         // 页面地址
 	Path       string `json:"path"`        // 原图直链
 	FileType   string `json:"file_type"`   // image/jpeg / image/png
 	DimensionX int    `json:"dimension_x"` // 宽
 	DimensionY int    `json:"dimension_y"` // 高
-	Purity     string `json:"purity"`
-	Category   string `json:"category"`
 }
 
 // Meta 分页元信息。
@@ -46,50 +48,57 @@ type Meta struct {
 
 // SearchResult 搜索响应。
 type SearchResult struct {
-	Data []Item `json:"data"`
-	Meta Meta   `json:"meta"`
+	Data []photo `json:"data"`
+	Meta Meta    `json:"meta"`
 }
 
-// Client 带节流的 HTTP 客户端。
+// Client 带节流的 HTTP 客户端, 实现 source.Source 接口。
 // 代理优先级: 显式配置 > Windows 系统代理 > 环境变量 > 直连。
 type Client struct {
-	http          *http.Client
-	log           *log.Logger
-	mu            sync.Mutex
-	lastReq       time.Time
-	proxyOverride atomic.Value // string, 显式代理地址
+	http    *http.Client
+	log     *log.Logger
+	proxy   *netproxy.Resolver
+	mu      sync.Mutex
+	lastReq time.Time
+
+	muCfg sync.RWMutex
+	cfg   config.Config
 }
 
 // NewClient 创建客户端。
 func NewClient(lg *log.Logger) *Client {
 	c := &Client{
-		log: lg,
+		log:   lg,
+		proxy: netproxy.New(),
 	}
 	c.http = &http.Client{
 		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
-			Proxy: c.proxyForRequest,
+			Proxy: c.proxy.Proxy,
 		},
 	}
 	return c
 }
 
-// SetProxy 更新显式代理地址(空串表示跟随系统代理)。
-func (c *Client) SetProxy(addr string) {
-	c.proxyOverride.Store(addr)
+// Name 实现 source.Source。
+func (c *Client) Name() string { return Name }
+
+// Update 实现 source.Source: 记录最新配置。
+func (c *Client) Update(cfg config.Config) {
+	c.muCfg.Lock()
+	c.cfg = cfg
+	c.muCfg.Unlock()
 }
 
-// proxyForRequest 每次请求时解析实际使用的代理。
-func (c *Client) proxyForRequest(req *http.Request) (*url.URL, error) {
-	if v := c.proxyOverride.Load(); v != nil {
-		if s, _ := v.(string); s != "" {
-			return url.Parse(s)
-		}
-	}
-	if u := systemProxy(); u != nil {
-		return u, nil
-	}
-	return http.ProxyFromEnvironment(req)
+// SetProxy 更新显式代理地址(空串表示跟随系统代理)。
+func (c *Client) SetProxy(addr string) {
+	c.proxy.SetOverride(addr)
+}
+
+func (c *Client) currentCfg() config.Config {
+	c.muCfg.RLock()
+	defer c.muCfg.RUnlock()
+	return c.cfg
 }
 
 // throttle 保证相邻两次请求间隔至少 1.5 秒(约 40 次/分钟, 低于官方 45 上限)。
@@ -124,39 +133,77 @@ func purityParam(p config.Purity) string {
 	return f(p.SFW) + f(p.Sketchy) + "0"
 }
 
-// Search 执行一次搜索。
+// Search 实现 source.Source。
 // sorting=random 时传入 seed 可在同一随机序列内翻页避免重复。
-func (c *Client) Search(cfg config.Config, page int, seed string) (SearchResult, error) {
-	var out SearchResult
+func (c *Client) Search(q source.Query) (source.Result, error) {
+	var out source.Result
+	cfg := c.currentCfg()
+	page := q.Page
 	if page < 1 {
 		page = 1
 	}
+	keyword := q.Keyword
+	if keyword == "" {
+		keyword = cfg.Query
+	}
+	orientation := q.Orientation
+	if orientation == "" {
+		orientation = cfg.Orientation
+	}
+	atLeast := cfg.AtLeast
+	if q.MinWidth > 0 && q.MinHeight > 0 {
+		atLeast = fmt.Sprintf("%dx%d", q.MinWidth, q.MinHeight)
+	}
+
 	v := url.Values{}
 	v.Set("categories", categoriesParam(cfg.Categories))
 	v.Set("purity", purityParam(cfg.Purity))
 	v.Set("sorting", cfg.Sorting)
 	v.Set("order", cfg.Order)
-	if cfg.Query != "" {
-		v.Set("q", cfg.Query)
+	if keyword != "" {
+		v.Set("q", keyword)
 	}
 	if cfg.Sorting == "toplist" {
 		v.Set("topRange", cfg.TopRange)
 	}
-	if cfg.AtLeast != "" {
-		v.Set("atleast", cfg.AtLeast)
+	if atLeast != "" {
+		v.Set("atleast", atLeast)
 	}
 	// 方向选择(横屏/竖屏)优先于自定义宽高比; wallhaven API 支持 landscape/portrait 关键词
-	if cfg.Orientation == "landscape" || cfg.Orientation == "portrait" {
-		v.Set("ratios", cfg.Orientation)
+	if orientation == "landscape" || orientation == "portrait" {
+		v.Set("ratios", orientation)
 	} else if cfg.Ratios != "" {
 		v.Set("ratios", cfg.Ratios)
 	}
 	v.Set("page", strconv.Itoa(page))
-	if cfg.Sorting == "random" && seed != "" {
-		v.Set("seed", seed)
+	if cfg.Sorting == "random" && q.Seed != "" {
+		v.Set("seed", q.Seed)
 	}
 	searchURL := baseURL + "/search?" + v.Encode()
 
+	res, err := c.doSearch(searchURL)
+	if err != nil {
+		return out, err
+	}
+	out.LastPage = res.Meta.LastPage
+	out.Seed = res.Meta.Seed
+	for _, p := range res.Data {
+		out.Items = append(out.Items, source.Item{
+			ID:       p.ID,
+			Source:   Name,
+			FileURL:  p.Path,
+			PageURL:  p.URL,
+			FileType: p.FileType,
+			Width:    p.DimensionX,
+			Height:   p.DimensionY,
+		})
+	}
+	return out, nil
+}
+
+// doSearch 执行搜索请求(含 429 退避重试)。
+func (c *Client) doSearch(searchURL string) (SearchResult, error) {
+	var out SearchResult
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		c.throttle()
@@ -199,10 +246,10 @@ func extFromFileType(ft string) string {
 	return ".jpg"
 }
 
-// Download 下载原图到 destDir, 文件名为 wallhaven-<id>.<ext>。
+// Download 实现 source.Source: 下载原图到 destDir, 文件名为 wallhaven-<id>.<ext>。
 // 已存在且大小合理的文件直接复用; 先写临时文件再改名, 避免半成品。
-func (c *Client) Download(item Item, destDir string) (string, error) {
-	if item.Path == "" {
+func (c *Client) Download(item source.Item, destDir string) (string, error) {
+	if item.FileURL == "" {
 		return "", errors.New("下载地址为空")
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
@@ -213,7 +260,7 @@ func (c *Client) Download(item Item, destDir string) (string, error) {
 		return dest, nil
 	}
 	c.throttle()
-	req, err := http.NewRequest(http.MethodGet, item.Path, nil)
+	req, err := http.NewRequest(http.MethodGet, item.FileURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -224,36 +271,10 @@ func (c *Client) Download(item Item, destDir string) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("下载 http %d: %s", resp.StatusCode, item.Path)
+		return "", fmt.Errorf("下载 http %d: %s", resp.StatusCode, item.FileURL)
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "image/") {
 		return "", fmt.Errorf("响应不是图片: %s", ct)
 	}
-	tmp := dest + ".part"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return "", err
-	}
-	n, copyErr := io.Copy(f, resp.Body)
-	closeErr := f.Close()
-	if copyErr != nil {
-		_ = os.Remove(tmp)
-		return "", copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(tmp)
-		return "", closeErr
-	}
-	if n < 10*1024 {
-		_ = os.Remove(tmp)
-		return "", fmt.Errorf("文件过小(%d 字节), 疑似无效内容", n)
-	}
-	if err := os.Rename(tmp, dest); err != nil {
-		_ = os.Remove(tmp)
-		return "", err
-	}
-	if c.log != nil {
-		c.log.Printf("downloaded %s (%d KB)", dest, n/1024)
-	}
-	return dest, nil
+	return source.SaveImage(dest, resp.Body, c.log)
 }

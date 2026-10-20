@@ -117,17 +117,44 @@ func httpError(w http.ResponseWriter, msg string, code int) {
 	http.Error(w, msg, code)
 }
 
+// configPayload 是配置保存接口的载荷。
+// UnsplashKey 为空表示"保持原值"(凭据不回显到前端);
+// ClearUnsplashKey 为 true 表示清除已保存的 key。
+type configPayload struct {
+	config.Config
+	ClearUnsplashKey bool `json:"clear_unsplash_key"`
+}
+
+// configResponse 是配置读取接口的响应。
+// 不回显 Unsplash Access Key, 只告知是否已配置。
+type configResponse struct {
+	config.Config
+	UnsplashKeySet bool `json:"unsplash_key_set"`
+}
+
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, s.sched.Config())
+	cfg := s.sched.Config()
+	keySet := cfg.UnsplashKey != ""
+	cfg.UnsplashKey = ""
+	writeJSON(w, configResponse{Config: cfg, UnsplashKeySet: keySet})
 }
 
 // handlePostConfig 保存配置并处理副作用:
 // 开机自启开关、锁屏计划任务首次安装(触发一次 UAC)。
 func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
-	var cfg config.Config
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+	var payload configPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		httpError(w, "配置格式错误: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+	cfg := payload.Config
+	cur := s.sched.Config()
+	switch {
+	case payload.ClearUnsplashKey:
+		cfg.UnsplashKey = ""
+	case cfg.UnsplashKey == "":
+		// 前端不回显凭据, 空值表示保持原 key 不变
+		cfg.UnsplashKey = cur.UnsplashKey
 	}
 	cfg.Sanitize()
 	exe := paths.ExePath()
@@ -176,7 +203,6 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 
 	// 乐观并发校验: 页面保存所基于的版本必须仍是当前版本,
 	// 否则说明配置已被其他保存(或手工编辑)更新, 拒绝覆盖旧的表单快照
-	cur := s.sched.Config()
 	if cfg.Revision != cur.Revision {
 		httpError(w, "配置已在其他地方被修改, 请刷新页面后再保存", http.StatusConflict)
 		return
@@ -191,7 +217,10 @@ func (s *Server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "缓存目录迁移失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, s.sched.Config())
+	saved := s.sched.Config()
+	keySet := saved.UnsplashKey != ""
+	saved.UnsplashKey = ""
+	writeJSON(w, configResponse{Config: saved, UnsplashKeySet: keySet})
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {

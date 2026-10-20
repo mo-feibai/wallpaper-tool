@@ -12,6 +12,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,8 +26,10 @@ import (
 	"wallpaper-tool/internal/paths"
 	"wallpaper-tool/internal/scheduler"
 	"wallpaper-tool/internal/singleinstance"
+	"wallpaper-tool/internal/source"
 	"wallpaper-tool/internal/state"
 	"wallpaper-tool/internal/tray"
+	"wallpaper-tool/internal/unsplash"
 	"wallpaper-tool/internal/wallhaven"
 	"wallpaper-tool/internal/wallpaper"
 	"wallpaper-tool/internal/web"
@@ -104,9 +107,8 @@ func runTray() {
 		os.Exit(1)
 	}
 
-	client := wallhaven.NewClient(lg)
-	client.SetProxy(cfg.Proxy)
-	sched := scheduler.New(cfg, st, client, lg)
+	sources := buildSources(cfg, lg)
+	sched := scheduler.New(cfg, st, sources, lg)
 
 	// 启动时检查缓存目录是否被(手工改配置)变更, 需要则迁移
 	if err := sched.SyncCacheDir(); err != nil {
@@ -150,6 +152,23 @@ func runTray() {
 	lg.Printf("=== tray mode exited ===")
 }
 
+// buildSources 创建已注册的数据源集合(按名字索引)。
+// 各源共享同一份配置与代理设置, 调度器按目标选择使用哪个源。
+func buildSources(cfg config.Config, lg *log.Logger) map[string]source.Source {
+	wh := wallhaven.NewClient(lg)
+	wh.SetProxy(cfg.Proxy)
+	wh.Update(cfg)
+
+	us := unsplash.NewClient(lg)
+	us.SetProxy(cfg.Proxy)
+	us.Update(cfg)
+
+	return map[string]source.Source{
+		config.SourceWallhaven: wh,
+		config.SourceUnsplash:  us,
+	}
+}
+
 // runOnce 单次换图模式(测试用)。
 func runOnce() error {
 	lg := logging.Setup(paths.LogFile())
@@ -158,9 +177,8 @@ func runOnce() error {
 		lg.Printf("init: %v", err)
 		return err
 	}
-	client := wallhaven.NewClient(lg)
-	client.SetProxy(cfg.Proxy)
-	sched := scheduler.New(cfg, st, client, lg)
+	sources := buildSources(cfg, lg)
+	sched := scheduler.New(cfg, st, sources, lg)
 	if err := sched.Next(); err != nil {
 		lg.Printf("once failed: %v", err)
 		return err

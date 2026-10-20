@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,8 +18,8 @@ import (
 	"wallpaper-tool/internal/elevate"
 	"wallpaper-tool/internal/notify"
 	"wallpaper-tool/internal/paths"
+	"wallpaper-tool/internal/source"
 	"wallpaper-tool/internal/state"
-	"wallpaper-tool/internal/wallhaven"
 	"wallpaper-tool/internal/wallpaper"
 )
 
@@ -43,7 +44,7 @@ type Scheduler struct {
 	mu      sync.Mutex
 	cfg     config.Config
 	state   *state.Store
-	client  *wallhaven.Client
+	sources map[string]source.Source // 按数据源名索引
 	log     *log.Logger
 	ticker  *time.Ticker
 	stop    chan struct{}
@@ -53,15 +54,15 @@ type Scheduler struct {
 	started bool
 }
 
-// New 创建调度器。
-func New(cfg config.Config, st *state.Store, client *wallhaven.Client, lg *log.Logger) *Scheduler {
+// New 创建调度器。sources 为已注册的数据源集合。
+func New(cfg config.Config, st *state.Store, sources map[string]source.Source, lg *log.Logger) *Scheduler {
 	cfg.Sanitize()
 	return &Scheduler{
-		cfg:    cfg,
-		state:  st,
-		client: client,
-		log:    lg,
-		seen:   map[string]bool{},
+		cfg:     cfg,
+		state:   st,
+		sources: sources,
+		log:     lg,
+		seen:    map[string]bool{},
 	}
 }
 
@@ -73,30 +74,41 @@ func (s *Scheduler) Config() config.Config {
 }
 
 // UpdateConfig 保存并应用新配置(重置定时器)。
-// 搜索相关字段变化时清空预取队列, 避免继续使用旧筛选条件拉取的图片。
+// 搜索相关字段变化时清空预取队列, 避免继续使用旧筛选条件拉取的图片;
+// 某目标的数据源变化时只清空该目标的队列。
 func (s *Scheduler) UpdateConfig(cfg config.Config) error {
 	cfg.Sanitize()
 	oldSig := searchSignature(s.cfg)
 	newSig := searchSignature(cfg)
+	oldDesktopSrc := s.cfg.Sources.Desktop
+	oldLockSrc := s.cfg.Sources.LockScreen
 	if err := config.Save(paths.ConfigFile(), cfg); err != nil {
 		return fmt.Errorf("保存配置失败: %w", err)
 	}
 	s.mu.Lock()
 	s.cfg = cfg
-	s.client.SetProxy(cfg.Proxy)
+	for _, sc := range s.sources {
+		sc.Update(cfg)
+	}
 	interval := time.Duration(cfg.IntervalMinutes) * time.Minute
 	if s.ticker != nil {
 		s.ticker.Reset(interval)
 	}
 	s.nextRun = time.Now().Add(interval)
 	s.mu.Unlock()
-	if oldSig != newSig {
+
+	clearDesktop := oldSig != newSig || oldDesktopSrc != cfg.Sources.Desktop
+	clearLock := oldSig != newSig || oldLockSrc != cfg.Sources.LockScreen
+	if clearDesktop || clearLock {
 		_ = s.state.Update(func(u *state.State) {
-			u.Queue = nil
-			u.Page = 1
-			u.Seed = ""
+			if clearDesktop {
+				u.Desktop = state.Cursor{Queue: []state.Item{}, Page: 1}
+			}
+			if clearLock {
+				u.Lock = state.Cursor{Queue: []state.Item{}, Page: 1}
+			}
 		})
-		s.log.Printf("search filters changed, prefetch queue cleared")
+		s.log.Printf("search filters or source changed, prefetch queue cleared")
 	}
 	return nil
 }
@@ -285,95 +297,102 @@ func (s *Scheduler) setErr(msg string) {
 }
 
 // applyNext 完整执行一次换图: 取图 -> 下载 -> 应用 -> 记录历史 -> 清理缓存。
-// 桌面与锁屏同时启用时各取一张不同的图; 仅锁屏时第一张直接给锁屏。
+// 桌面与锁屏各自使用配置指定的数据源与预取队列, 同时启用时各取一张不同的图;
+// 锁屏取图失败时降级为沿用桌面图。
 // 通过 s.mu 串行化, 定时/手动调用不会并发执行。
 func (s *Scheduler) applyNext() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	st := s.state.Get()
-	queue, page, seed := st.Queue, st.Page, st.Seed
+	desktopItem := state.Item{}
+	desktopOK := false
 
-	// 第一张: 桌面用; 桌面未启用时直接给锁屏
-	item1, q1, p1, sd1, err := s.nextItemFrom(queue, page, seed, st.Current.ID)
-	queue, page, seed = q1, p1, sd1
-	if err != nil {
-		s.persistFetch(queue, page, seed)
-		return err
-	}
-	local1, derr := s.client.Download(
-		wallhaven.Item{ID: item1.ID, Path: item1.FileURL, FileType: fileExtGuess(item1.FileURL)},
-		s.cacheDir(),
-	)
-	if derr != nil {
-		// 下载失败也推进队列并标记已见, 避免坏地址反复阻塞后续换图
-		s.seen[item1.ID] = true
-		s.persistFetch(queue, page, seed)
-		return fmt.Errorf("下载壁纸失败: %w", derr)
-	}
-	item1.Path = local1
-
-	lockItem := item1
 	if s.cfg.Targets.Desktop {
-		if err := s.applyDesktop(item1); err != nil {
-			s.persistFetch(queue, page, seed)
+		item, err := s.takeItem(targetDesktop, "")
+		if err != nil {
 			return err
 		}
-		s.seen[item1.ID] = true
+		local, derr := s.downloadItem(item)
+		if derr != nil {
+			// 下载失败也标记已见, 避免坏地址反复阻塞后续换图
+			s.markSeen(item)
+			return fmt.Errorf("下载壁纸失败: %w", derr)
+		}
+		item.Path = local
+		if err := s.applyDesktop(item); err != nil {
+			return err
+		}
+		desktopItem = item
+		desktopOK = true
+		s.markSeen(item)
 		_ = s.state.Update(func(u *state.State) {
-			u.Current = item1
-			u.History = append([]state.Item{item1}, u.History...)
+			u.Current = item
+			u.History = append([]state.Item{item}, u.History...)
 			if len(u.History) > historyLimit {
 				u.History = u.History[:historyLimit]
 			}
 			u.HistoryIndex = 0
 		})
-		s.log.Printf("desktop wallpaper changed: id=%s file=%s", item1.ID, item1.Path)
-
-		// 第二张不同的图给锁屏
-		if s.cfg.Targets.LockScreen {
-			item2, q2, p2, sd2, err2 := s.nextItemFrom(queue, page, seed, item1.ID)
-			queue, page, seed = q2, p2, sd2
-			if err2 == nil {
-				local2, derr2 := s.client.Download(
-					wallhaven.Item{ID: item2.ID, Path: item2.FileURL, FileType: fileExtGuess(item2.FileURL)},
-					s.cacheDir(),
-				)
-				if derr2 == nil {
-					item2.Path = local2
-					lockItem = item2
-				} else {
-					s.seen[item2.ID] = true
-					s.log.Printf("锁屏壁纸下载失败, 本次锁屏不更新: %v", derr2)
-				}
-			} else {
-				s.log.Printf("获取锁屏壁纸失败, 本次锁屏沿用桌面图: %v", err2)
-			}
-		}
+		s.log.Printf("desktop wallpaper changed: source=%s id=%s file=%s", item.Source, item.ID, item.Path)
 	}
 
+	lockItem := desktopItem
 	if s.cfg.Targets.LockScreen {
-		s.seen[lockItem.ID] = true
-		if err := s.applyLockScreenItem(lockItem); err != nil {
-			s.persistFetch(queue, page, seed)
-			return err
-		}
-		_ = s.state.Update(func(u *state.State) {
-			u.LockCurrent = lockItem
-			u.LockScreenTarget = lockItem.Path
-			u.LockHistory = append([]state.Item{lockItem}, u.LockHistory...)
-			if len(u.LockHistory) > historyLimit {
-				u.LockHistory = u.LockHistory[:historyLimit]
+		lockOK := false
+		if desktopOK {
+			// 锁屏单独取一张(与桌面不同)
+			item, err := s.takeItem(targetLock, seenKeyOf(desktopItem))
+			if err != nil {
+				s.log.Printf("获取锁屏壁纸失败, 本次锁屏沿用桌面图: %v", err)
+				lockOK = true
+			} else {
+				local, derr := s.downloadItem(item)
+				if derr != nil {
+					s.markSeen(item)
+					s.log.Printf("锁屏壁纸下载失败, 本次锁屏沿用桌面图: %v", derr)
+					lockOK = true
+				} else {
+					item.Path = local
+					lockItem = item
+					lockOK = true
+				}
 			}
-			u.LockHistoryIndex = 0
-		})
-		s.log.Printf("lock screen changed: id=%s file=%s", lockItem.ID, lockItem.Path)
+		} else {
+			// 桌面未启用: 锁屏直接取
+			item, err := s.takeItem(targetLock, "")
+			if err != nil {
+				return err
+			}
+			local, derr := s.downloadItem(item)
+			if derr != nil {
+				s.markSeen(item)
+				return fmt.Errorf("下载壁纸失败: %w", derr)
+			}
+			item.Path = local
+			lockItem = item
+			lockOK = true
+		}
+		if lockOK {
+			if err := s.applyLockScreenItem(lockItem); err != nil {
+				return err
+			}
+			s.markSeen(lockItem)
+			_ = s.state.Update(func(u *state.State) {
+				u.LockCurrent = lockItem
+				u.LockScreenTarget = lockItem.Path
+				u.LockHistory = append([]state.Item{lockItem}, u.LockHistory...)
+				if len(u.LockHistory) > historyLimit {
+					u.LockHistory = u.LockHistory[:historyLimit]
+				}
+				u.LockHistoryIndex = 0
+			})
+			s.log.Printf("lock screen changed: source=%s id=%s file=%s", lockItem.Source, lockItem.ID, lockItem.Path)
+		}
 	}
 
-	s.persistFetch(queue, page, seed)
 	s.nextRun = time.Now().Add(time.Duration(s.cfg.IntervalMinutes) * time.Minute)
 	s.cleanupCache()
-	s.notifyRotation(item1, lockItem)
+	s.notifyRotation(desktopItem, lockItem)
 	return nil
 }
 
@@ -393,13 +412,171 @@ func (s *Scheduler) notifyRotation(desktop, lock state.Item) {
 	notify.Show("更换成功", body, s.log)
 }
 
-// persistFetch 持久化预取队列推进结果。
-func (s *Scheduler) persistFetch(queue []state.Item, page int, seed string) {
+// 目标标识: 桌面与锁屏各自使用独立的数据源与预取队列。
+const (
+	targetDesktop = "desktop"
+	targetLock    = "lock"
+)
+
+// cursorFor 取目标的预取队列状态。
+func (s *Scheduler) cursorFor(target string) state.Cursor {
+	st := s.state.Get()
+	if target == targetLock {
+		return st.Lock
+	}
+	return st.Desktop
+}
+
+// saveCursor 保存目标的预取队列状态。
+func (s *Scheduler) saveCursor(target string, c state.Cursor) {
 	_ = s.state.Update(func(u *state.State) {
-		u.Queue = queue
-		u.Page = page
-		u.Seed = seed
+		if target == targetLock {
+			u.Lock = c
+		} else {
+			u.Desktop = c
+		}
 	})
+}
+
+// sourceFor 返回目标使用的数据源。
+func (s *Scheduler) sourceFor(target string) source.Source {
+	name := s.cfg.Sources.Desktop
+	if target == targetLock {
+		name = s.cfg.Sources.LockScreen
+	}
+	return s.sourceByName(name)
+}
+
+// sourceByName 按名字取数据源, 找不到时回退到 wallhaven。
+func (s *Scheduler) sourceByName(name string) source.Source {
+	if name == "" {
+		name = config.SourceWallhaven
+	}
+	if sc, ok := s.sources[name]; ok {
+		return sc
+	}
+	return s.sources[config.SourceWallhaven]
+}
+
+// seenKeyOf 生成跨源唯一的条目键(不同数据源的 ID 可能相同)。
+func seenKeyOf(item state.Item) string {
+	src := item.Source
+	if src == "" {
+		src = config.SourceWallhaven
+	}
+	return src + "/" + item.ID
+}
+
+// markSeen 标记条目已使用。
+func (s *Scheduler) markSeen(item state.Item) {
+	s.seen[seenKeyOf(item)] = true
+}
+
+// takeItem 为目标取一条壁纸: 优先用预取队列, 队列空则向该目标的数据源拉一批。
+// excludeKey 为需要排除的条目键, 用于保证桌面与锁屏不是同一张图。
+// 调用方需持有 s.mu。
+func (s *Scheduler) takeItem(target string, excludeKey string) (state.Item, error) {
+	cur := s.cursorFor(target)
+	src := s.sourceFor(target)
+	queue := cur.Queue
+
+	for len(queue) > 0 {
+		cand := queue[0]
+		queue = queue[1:]
+		if cand.Source == "" {
+			// 旧版本队列没有源标记, 按当前目标的数据源补全
+			cand.Source = src.Name()
+		}
+		key := seenKeyOf(cand)
+		if s.seen[key] || key == excludeKey {
+			continue
+		}
+		cur.Queue = queue
+		s.saveCursor(target, cur)
+		return cand, nil
+	}
+
+	q := source.Query{
+		Page:        cur.Page,
+		Seed:        cur.Seed,
+		Keyword:     s.cfg.Query,
+		Orientation: s.cfg.Orientation,
+	}
+	if w, h, ok := parseAtLeast(s.cfg.AtLeast); ok {
+		q.MinWidth, q.MinHeight = w, h
+	}
+	res, err := src.Search(q)
+	if err != nil {
+		return state.Item{}, err
+	}
+	newPage := cur.Page + 1
+	newSeed := ""
+	if res.LastPage > 0 && newPage > res.LastPage {
+		newPage = 1 // 回到第一页, 丢弃旧 seed 让服务端生成新的随机序列
+	} else {
+		newSeed = res.Seed
+	}
+	cur.Page = newPage
+	cur.Seed = newSeed
+	for _, it := range res.Items {
+		cand := state.Item{
+			ID:      it.ID,
+			Source:  it.Source,
+			FileURL: it.FileURL,
+			PageURL: it.PageURL,
+			Author:  it.Author,
+			Title:   it.Title,
+		}
+		key := seenKeyOf(cand)
+		if s.seen[key] || key == excludeKey {
+			continue
+		}
+		queue = append(queue, cand)
+	}
+	cur.Queue = queue
+	if len(queue) == 0 {
+		s.saveCursor(target, cur)
+		return state.Item{}, errNoResults
+	}
+	item := queue[0]
+	cur.Queue = queue[1:]
+	s.saveCursor(target, cur)
+	return item, nil
+}
+
+// downloadItem 按条目来源的数据源下载原图。
+func (s *Scheduler) downloadItem(item state.Item) (string, error) {
+	src := s.sourceByName(item.Source)
+	if src == nil {
+		return "", fmt.Errorf("未知数据源: %s", item.Source)
+	}
+	return src.Download(source.Item{
+		ID:       item.ID,
+		Source:   item.Source,
+		FileURL:  item.FileURL,
+		PageURL:  item.PageURL,
+		FileType: fileExtGuess(item.FileURL),
+		Title:    item.Title,
+		Author:   item.Author,
+	}, s.cacheDir())
+}
+
+// parseAtLeast 解析最小分辨率 "1920x1080"。
+func parseAtLeast(s string) (int, int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(s, "x", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	w, err1 := strconv.Atoi(parts[0])
+	h, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil || w <= 0 || h <= 0 {
+		return 0, 0, false
+	}
+	return w, h, true
 }
 
 // fileExtGuess 从直链 URL 猜测扩展名(wallhaven 直链以 .jpg/.png 结尾)。
@@ -409,52 +586,6 @@ func fileExtGuess(fileURL string) string {
 		return "image/png"
 	}
 	return "image/jpeg"
-}
-
-// nextItemFrom 从队列取一条(跳过 seen 与 excludeID); 队列空则拉取新的一页补充。
-// 无论成败都返回推进后的队列/页码/seed, 由调用方决定是否持久化。
-// 调用方需持有 s.mu。
-func (s *Scheduler) nextItemFrom(queue []state.Item, page int, seed string, excludeID string) (item state.Item, newQueue []state.Item, newPage int, newSeed string, err error) {
-	newPage, newSeed = page, seed
-	for len(queue) > 0 {
-		cand := queue[0]
-		queue = queue[1:]
-		if s.seen[cand.ID] || cand.ID == excludeID {
-			continue
-		}
-		return cand, queue, newPage, newSeed, nil
-	}
-
-	res, err := s.client.Search(s.cfg, page, seed)
-	if err != nil {
-		return item, queue, newPage, newSeed, err
-	}
-	newPage = page + 1
-	if res.Meta.LastPage > 0 && newPage > res.Meta.LastPage {
-		newPage = 1
-	}
-	newSeed = seed
-	if s.cfg.Sorting == "random" {
-		newSeed = res.Meta.Seed
-		if newPage == 1 {
-			newSeed = "" // 回到第 1 页时丢弃旧 seed, 让服务端生成新的随机序列
-		}
-	}
-	for _, it := range res.Data {
-		if s.seen[it.ID] || it.ID == excludeID {
-			continue
-		}
-		queue = append(queue, state.Item{ID: it.ID, FileURL: it.Path, PageURL: it.URL})
-	}
-	for len(queue) > 0 {
-		cand := queue[0]
-		queue = queue[1:]
-		if s.seen[cand.ID] || cand.ID == excludeID {
-			continue
-		}
-		return cand, queue, newPage, newSeed, nil
-	}
-	return item, queue, newPage, newSeed, errNoResults
 }
 
 // applyDesktop 把本地图片应用到桌面。调用方需持有 s.mu。

@@ -360,6 +360,23 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* 表单内的小号次要按钮 */
+button.mini {
+  justify-self: start;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+}
+
+button.mini:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  transform: none;
+}
+
 :focus-visible {
   outline: 2px solid rgba(139, 124, 255, 0.9);
   outline-offset: 2px;

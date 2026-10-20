@@ -44,6 +44,7 @@
           <button id="btn-pause">暂停</button>
         </div>
         <a id="cur-link" class="ghost-link" href="#" target="_blank" rel="noopener">在 wallhaven 查看这张</a>
+        <a id="cur-author" class="ghost-link" href="#" target="_blank" rel="noopener" style="display:none;margin-left:14px"></a>
       </div>
     </div>
   </section>
@@ -52,6 +53,22 @@
     <h2>设置</h2>
     <form id="cfg-form">
       <div class="grid">
+        <label>桌面数据源
+          <select id="f-src-desktop">
+            <option value="wallhaven">wallhaven</option>
+            <option value="unsplash">unsplash</option>
+          </select>
+        </label>
+        <label>锁屏数据源
+          <select id="f-src-lock">
+            <option value="wallhaven">wallhaven</option>
+            <option value="unsplash">unsplash</option>
+          </select>
+        </label>
+        <label id="wrap-unsplash-key" style="display:none">Unsplash Access Key
+          <input type="text" id="f-unsplash-key" placeholder="留空保持原值, 输入新值则覆盖" autocomplete="off" spellcheck="false">
+          <button type="button" id="btn-clear-key" class="mini">清除已保存的 key</button>
+        </label>
         <label>换图间隔 / 分钟
           <input type="number" id="f-interval" min="1" max="10080">
         </label>

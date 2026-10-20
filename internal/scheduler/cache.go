@@ -64,8 +64,14 @@ func (s *Scheduler) SyncCacheDir() error {
 		for i := range u.History {
 			u.History[i].Path = remap(u.History[i].Path)
 		}
-		for i := range u.Queue {
-			u.Queue[i].Path = remap(u.Queue[i].Path)
+		for i := range u.Desktop.Queue {
+			u.Desktop.Queue[i].Path = remap(u.Desktop.Queue[i].Path)
+		}
+		for i := range u.Lock.Queue {
+			u.Lock.Queue[i].Path = remap(u.Lock.Queue[i].Path)
+		}
+		for i := range u.LockHistory {
+			u.LockHistory[i].Path = remap(u.LockHistory[i].Path)
 		}
 	})
 
