@@ -4,7 +4,7 @@
 #define MyAppName "壁纸工具"
 #define MyAppExeName "wallpaper-tool.exe"
 #ifndef MyAppVersion
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.3.0"
 #endif
 
 [Setup]
@@ -33,15 +33,20 @@ DefaultGroupName={#MyAppName}
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Tasks]
+; checkedonce: 升级时不重建桌面快捷方式, 保留用户可能做过的自定义。
+; 图标显示不依赖重建: IconLocation=",0" 即"使用目标 exe 的第 0 个图标",
+; exe 已内嵌图标资源(.syso), 故快捷方式图标始终正确。
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
 
 [Files]
 Source: "..\wallpaper-tool.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+; IconFilename 必须显式指定: SetupIconFile 只作用于 setup.exe 自身, 不会传给快捷方式。
+; 指向已安装的 exe(自带图标资源), 不依赖构建期相对路径, 每次安装/升级都稳定生效。
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "立即运行 {#MyAppName}"; Flags: nowait postinstall skipifsilent
