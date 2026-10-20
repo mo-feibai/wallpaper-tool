@@ -3,6 +3,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,8 @@ import (
 	"wallpaper-tool/internal/paths"
 	"wallpaper-tool/internal/scheduler"
 	"wallpaper-tool/internal/state"
+	"wallpaper-tool/internal/update"
+	"wallpaper-tool/internal/version"
 )
 
 //go:embed static
@@ -69,6 +72,7 @@ func (s *Server) Start() (int, error) {
 	mux.HandleFunc("GET /api/lockscreen-image", s.handleLockScreenImage)
 	mux.HandleFunc("GET /api/history-image", s.handleHistoryImage)
 	mux.HandleFunc("GET /assets/icon.png", s.handleAppIcon)
+	mux.HandleFunc("GET /api/version", s.handleVersion)
 
 	sub, subErr := fs.Sub(staticFiles, "static")
 	if subErr != nil {
@@ -130,6 +134,26 @@ type configPayload struct {
 type configResponse struct {
 	config.Config
 	UnsplashKeySet bool `json:"unsplash_key_set"`
+}
+
+// handleVersion 返回当前版本与 GitHub 上的最新版本, 供配置页显示更新提示。
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	info := update.Last()
+	if info.CheckedAt.IsZero() {
+		// 尚未检查过(例如刚启动), 现场查一次; 失败只标记, 不影响页面。
+		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+		defer cancel()
+		info = update.Check(ctx, version.Current())
+		update.SetInfo(info)
+	}
+	writeJSON(w, map[string]any{
+		"current":      version.Current(),
+		"latest":       info.Latest,
+		"available":    info.Available,
+		"release_url":  info.ReleaseURL,
+		"checked_at":   info.CheckedAt,
+		"check_failed": info.CheckFailed,
+	})
 }
 
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {

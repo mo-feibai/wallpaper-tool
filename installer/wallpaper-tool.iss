@@ -4,7 +4,7 @@
 #define MyAppName "壁纸工具"
 #define MyAppExeName "wallpaper-tool.exe"
 #ifndef MyAppVersion
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "0.4.0"
 #endif
 
 [Setup]

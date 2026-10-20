@@ -47,7 +47,6 @@ body {
   line-height: 1.6;
   /* 锐化: 亚像素渲染 + 极细描边补偿小字号, 避免玻璃背景上的字发虚 */
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
   -webkit-text-stroke: 0.2px currentColor;
   /* 无壁纸时的兜底底色, 同时给玻璃提供微弱底纹 */
   background:
@@ -58,6 +57,7 @@ body {
 }
 
 /* 当前壁纸: 铺满视口并模糊, inset 负值保证模糊后边缘不露底 */
+/* 独立合成层: 滤镜结果被缓存为纹理, 滚动时无需逐帧重算 */
 body::before {
   content: "";
   position: fixed;
@@ -67,6 +67,8 @@ body::before {
   background-size: cover;
   background-position: center;
   filter: blur(50px) saturate(150%) brightness(0.68);
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 /* 暗化层: 只压暗不遮色, 保证玻璃上的文字对比度同时留得住壁纸颜色 */
@@ -169,6 +171,13 @@ main {
   z-index: -1;
   border-radius: inherit;
   background: var(--glass);
+  /* 性能: backdrop-filter 会让浏览器在滚动时对每张卡片实时采样背后的模糊壁纸,
+     卡片一多 GPU 就要逐帧重算, 滚动明显卡顿。背景本身已是模糊后的壁纸,
+     用半透明实色能得到几乎相同观感, 因此只给首屏 hero 卡保留真实折射。 */
+}
+
+/* 首屏卡片保留实时折射, 作为唯一的玻璃高光点 */
+.card.hero::after {
   backdrop-filter: blur(22px) saturate(150%);
   -webkit-backdrop-filter: blur(22px) saturate(150%);
 }
@@ -388,6 +397,15 @@ button.mini:hover:not(:disabled) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
   gap: 12px 14px;
+}
+
+/* 两列/单列: 用于数据源选择这类固定布局 */
+.grid.grid-2 {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 260px));
+}
+
+.grid.grid-1 {
+  grid-template-columns: minmax(0, 420px);
 }
 
 .grid label {
@@ -615,6 +633,9 @@ input[type="checkbox"] {
   overflow: hidden;
   background: rgba(8, 10, 16, 0.34);
   transition: transform 0.18s ease, border-color 0.18s ease;
+  /* 性能: 屏外条目跳过渲染, 滚动时不再逐张解码缩略图 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 137px;
 }
 
 .history li:hover {
@@ -715,6 +736,57 @@ input[type="number"] {
   background: transparent;
   color: rgba(238, 241, 247, 0.20);
   cursor: not-allowed;
+}
+
+/* ---------- 更新提示 / 页脚 / 提示文字 ---------- */
+
+[hidden] {
+  display: none !important;
+}
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 1120px;
+  margin: 14px auto 0;
+  padding: 9px 16px;
+  font-size: 13px;
+  color: var(--ink);
+  border: 1px solid rgba(95, 227, 192, 0.34);
+  border-radius: 14px;
+  background: linear-gradient(
+    90deg,
+    rgba(139, 124, 255, 0.20),
+    rgba(95, 227, 192, 0.16)
+  );
+  box-shadow: var(--shadow-soft);
+}
+
+.update-banner a {
+  color: var(--aqua);
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.update-banner a:hover {
+  text-decoration: underline;
+}
+
+.hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-faint);
+}
+
+.footer {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 22px 30px;
+  font-size: 12px;
+  color: var(--ink-faint);
 }
 
 /* ---------- 降级与响应式 ---------- */

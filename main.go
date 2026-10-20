@@ -10,12 +10,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"wallpaper-tool/internal/assets"
 	"wallpaper-tool/internal/autostart"
@@ -30,6 +32,8 @@ import (
 	"wallpaper-tool/internal/state"
 	"wallpaper-tool/internal/tray"
 	"wallpaper-tool/internal/unsplash"
+	"wallpaper-tool/internal/update"
+	"wallpaper-tool/internal/version"
 	"wallpaper-tool/internal/wallhaven"
 	"wallpaper-tool/internal/wallpaper"
 	"wallpaper-tool/internal/web"
@@ -139,6 +143,9 @@ func runTray() {
 	sched.Start()
 	defer sched.Stop()
 
+	// 后台检查 GitHub 是否有新版本(失败静默, 绝不打断换图)。
+	go checkUpdates(lg)
+
 	tray.Run(tray.Deps{
 		Log:         lg,
 		Next:        sched.Next,
@@ -150,6 +157,22 @@ func runTray() {
 		Stop:        srv.Stop,
 	})
 	lg.Printf("=== tray mode exited ===")
+}
+
+// checkUpdates 定期检查 GitHub 上的最新 tag, 并把结果存入 update 包供 Web 接口读取。
+// 首次检查在后台 goroutine 中进行, 不阻塞启动; 之后每 6 小时查一次。
+func checkUpdates(lg *log.Logger) {
+	check := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		info := update.Check(ctx, version.Current())
+		update.SetInfo(info)
+		lg.Printf("update check: %s", info.Describe())
+	}
+	check()
+	for range time.Tick(6 * time.Hour) {
+		check()
+	}
 }
 
 // buildSources 创建已注册的数据源集合(按名字索引)。

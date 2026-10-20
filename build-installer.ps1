@@ -30,7 +30,7 @@ try {
     & go @gviArgs
     if ($LASTEXITCODE -ne 0) { throw "生成 syso 失败" }
 
-    go build -trimpath -ldflags "-s -w -H=windowsgui" -o wallpaper-tool.exe .
+    go build -trimpath -ldflags "-s -w -H=windowsgui -X wallpaper-tool/internal/version.Version=$Version" -o wallpaper-tool.exe .
     if ($LASTEXITCODE -ne 0) { throw "go build failed" }
     Write-Host "[1/3] exe 构建完成(含图标资源)" -ForegroundColor Green
 

@@ -141,12 +141,30 @@ function fmtCountdown(ms) {
 let cfgRev = 0;
 let clearKeyFlag = false;
 
-// 任一目标选用 unsplash 时才显示 Access Key 输入框
+// 按所选数据源显示/隐藏对应的专属设置卡片。
+// 两个目标(桌面/锁屏)任一使用该源, 就展示该源的设置卡片。
 function updateSourceVisibility() {
-  const needKey =
-    $("f-src-desktop").value === "unsplash" ||
-    $("f-src-lock").value === "unsplash";
-  $("wrap-unsplash-key").style.display = needKey ? "" : "none";
+  const d = $("f-src-desktop").value;
+  const l = $("f-src-lock").value;
+  $("card-wallhaven").hidden = d !== "wallhaven" && l !== "wallhaven";
+  $("card-unsplash").hidden = d !== "unsplash" && l !== "unsplash";
+}
+
+// 读取版本信息, 有新版时显示更新提示条。
+async function loadVersion() {
+  try {
+    const v = await api("/api/version");
+    $("app-version").textContent = v.current || "-";
+    if (v.available && v.latest) {
+      $("update-text").textContent = "发现新版本 " + v.latest + " (当前 " + v.current + ")";
+      $("update-link").href = v.release_url;
+      $("update-banner").hidden = false;
+    } else {
+      $("update-banner").hidden = true;
+    }
+  } catch (e) {
+    // 更新检查失败不影响使用, 静默忽略
+  }
 }
 
 async function loadStatus() {
@@ -225,6 +243,7 @@ function renderHistory(list, items, type) {
     if (type === "lock") url += "&type=lock";
     img.src = url;
     img.loading = "lazy";
+    img.decoding = "async";
     img.title = it.id;
     // 兜底: 状态轮询与图片加载之间文件可能刚被清理, 加载失败时隐藏整条
     img.onerror = function () { li.style.display = "none"; };
@@ -518,4 +537,7 @@ document.querySelectorAll('input[type="number"]').forEach(enhanceNumber);
 syncSelectLabels();
 loadConfig();
 loadStatus();
+loadVersion();
 setInterval(loadStatus, 5000);
+// 更新检查频率低: 每 30 分钟一次即可
+setInterval(loadVersion, 30 * 60 * 1000);

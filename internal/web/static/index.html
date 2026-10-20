@@ -15,6 +15,12 @@
     <span id="paused-badge" class="badge hidden">已暂停</span>
   </div>
 </header>
+
+<div id="update-banner" class="update-banner" hidden>
+  <span id="update-text"></span>
+  <a id="update-link" href="#" target="_blank" rel="noopener">下载新版</a>
+</div>
+
 <main>
   <section class="card hero">
     <h2>当前状态</h2>
@@ -49,10 +55,11 @@
     </div>
   </section>
 
-  <section class="card">
-    <h2>设置</h2>
-    <form id="cfg-form">
-      <div class="grid">
+  <form id="cfg-form">
+    <!-- 数据源选择: 与各源的专属设置分开, 一眼看出当前用哪个源 -->
+    <section class="card">
+      <h2>数据源</h2>
+      <div class="grid grid-2">
         <label>桌面数据源
           <select id="f-src-desktop">
             <option value="wallhaven">wallhaven</option>
@@ -65,12 +72,30 @@
             <option value="unsplash">unsplash</option>
           </select>
         </label>
-        <label id="wrap-unsplash-key" style="display:none">Unsplash Access Key
-          <input type="text" id="f-unsplash-key" placeholder="留空保持原值, 输入新值则覆盖" autocomplete="off" spellcheck="false">
-          <button type="button" id="btn-clear-key" class="mini">清除已保存的 key</button>
+      </div>
+      <p class="hint">桌面与锁屏可分别使用不同数据源; 下方按所选源显示各自的专属设置。</p>
+    </section>
+
+    <!-- wallhaven 专属设置: 仅当有目标选用 wallhaven 时显示 -->
+    <section class="card src-card" id="card-wallhaven">
+      <h2>wallhaven 专属设置</h2>
+      <div class="grid">
+        <label>关键词
+          <input type="text" id="f-query" placeholder="留空不限, 例 landscape">
         </label>
-        <label>换图间隔 / 分钟
-          <input type="number" id="f-interval" min="1" max="10080">
+        <label>最小分辨率
+          <input type="text" id="f-atleast" placeholder="留空不限, 例 1920x1080">
+        </label>
+        <label>宽高比方向
+          <select id="f-orientation">
+            <option value="">不限</option>
+            <option value="landscape">横屏 landscape</option>
+            <option value="portrait">竖屏 portrait</option>
+            <option value="custom">自定义</option>
+          </select>
+        </label>
+        <label id="wrap-ratios" style="display:none">宽高比(自定义)
+          <input type="text" id="f-ratios" placeholder="留空不限, 例 16x9,16x10">
         </label>
         <label>排序方式
           <select id="f-sorting">
@@ -99,47 +124,8 @@
             <option value="asc">升序</option>
           </select>
         </label>
-        <label>关键词
-          <input type="text" id="f-query" placeholder="留空不限, 例 landscape">
-        </label>
-        <label>最小分辨率
-          <input type="text" id="f-atleast" placeholder="留空不限, 例 1920x1080">
-        </label>
-        <label>宽高比方向
-          <select id="f-orientation">
-            <option value="">不限</option>
-            <option value="landscape">横屏 landscape</option>
-            <option value="portrait">竖屏 portrait</option>
-            <option value="custom">自定义</option>
-          </select>
-        </label>
-        <label id="wrap-ratios" style="display:none">宽高比(自定义)
-          <input type="text" id="f-ratios" placeholder="留空不限, 例 16x9,16x10">
-        </label>
-        <label>桌面适配
-          <select id="f-fit">
-            <option value="fill">填充 fill</option>
-            <option value="fit">适应 fit</option>
-            <option value="stretch">拉伸 stretch</option>
-            <option value="center">居中 center</option>
-            <option value="tile">平铺 tile</option>
-            <option value="span">跨屏 span</option>
-          </select>
-        </label>
         <label>wallhaven 代理
           <input type="text" id="f-proxy" placeholder="留空自动跟随系统代理">
-        </label>
-        <label>缓存目录
-          <input type="text" id="f-cachedir" placeholder="留空默认, 支持 %USERPROFILE%">
-        </label>
-        <label>缓存张数上限
-          <input type="number" id="f-maxitems" min="1" max="5000">
-        </label>
-        <label title="0 表示永久保存">最大保存天数
-          <input type="number" id="f-maxdays" min="0" max="36500" placeholder="0=永久">
-        </label>
-        <label title="0 表示自动选取, 修改后需重启程序">Web 端口
-          <input type="number" id="f-webport" min="0" max="65535" placeholder="0=自动">
         </label>
       </div>
       <div class="checks">
@@ -156,6 +142,50 @@
           <label><input type="checkbox" id="f-purity-sfw">SFW</label>
           <label><input type="checkbox" id="f-purity-sketchy">Sketchy</label>
         </div>
+      </div>
+    </section>
+
+    <!-- Unsplash 专属设置: 仅当有目标选用 unsplash 时显示 -->
+    <section class="card src-card" id="card-unsplash">
+      <h2>Unsplash 专属设置</h2>
+      <div class="grid grid-1">
+        <label>Access Key
+          <input type="text" id="f-unsplash-key" placeholder="输入 Access Key" autocomplete="off" spellcheck="false">
+          <button type="button" id="btn-clear-key" class="mini">清除已保存的 key</button>
+        </label>
+      </div>
+      <p class="hint">在 unsplash.com/developers 注册应用后获取; 一次请求可预取 30 张随机图, 官方要求显示摄影师署名(已自动带上)。</p>
+    </section>
+
+    <!-- 通用设置 -->
+    <section class="card">
+      <h2>通用设置</h2>
+      <div class="grid">
+        <label>换图间隔 / 分钟
+          <input type="number" id="f-interval" min="1" max="10080">
+        </label>
+        <label>桌面适配
+          <select id="f-fit">
+            <option value="fill">填充 fill</option>
+            <option value="fit">适应 fit</option>
+            <option value="stretch">拉伸 stretch</option>
+            <option value="center">居中 center</option>
+            <option value="tile">平铺 tile</option>
+            <option value="span">跨屏 span</option>
+          </select>
+        </label>
+        <label>缓存目录
+          <input type="text" id="f-cachedir" placeholder="留空默认, 支持 %USERPROFILE%">
+        </label>
+        <label>缓存张数上限
+          <input type="number" id="f-maxitems" min="1" max="5000">
+        </label>
+        <label title="0 表示永久保存">最大保存天数
+          <input type="number" id="f-maxdays" min="0" max="36500" placeholder="0=永久">
+        </label>
+        <label title="0 表示自动选取, 修改后需重启程序">Web 端口
+          <input type="number" id="f-webport" min="0" max="65535" placeholder="0=自动">
+        </label>
       </div>
       <div class="checks">
         <span class="group">应用目标</span>
@@ -175,8 +205,8 @@
         <button type="button" id="btn-remove-lockscreen">移除锁屏策略(需 UAC)</button>
       </div>
       <p id="save-msg" class="msg" hidden></p>
-    </form>
-  </section>
+    </section>
+  </form>
 
   <section class="card">
     <h2>桌面壁纸历史(缓存中最近 <span id="history-count">0</span> 张)</h2>
@@ -186,6 +216,11 @@
     <ul id="lock-history" class="history"></ul>
   </section>
 </main>
+
+<footer class="footer">
+  <span>壁纸工具 v<span id="app-version" class="mono">-</span></span>
+</footer>
+
 <script src="/app.js"></script>
 </body>
 </html>
