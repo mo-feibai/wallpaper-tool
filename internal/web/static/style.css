@@ -88,7 +88,8 @@ body::after {
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 10;
+  /* 高于展开中的下拉菜单所属卡片(30), 保证顶栏不被压住 */
+  z-index: 100;
   background: rgba(11, 14, 23, 0.34);
   border-bottom: 1px solid var(--edge);
 }
@@ -544,10 +545,16 @@ select option {
   padding: 6px;
   border: 1px solid var(--edge);
   border-radius: 14px;
-  background: rgba(14, 17, 26, 0.82);
+  /* 不透明度足够高: 菜单展开时不能透出下方卡片的文字(视觉穿透) */
+  background: rgba(14, 17, 26, 0.97);
   box-shadow: var(--shadow-float), inset 0 1px 0 var(--edge-top);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+/* 菜单展开时把整张卡片抬到其他卡片之上。
+   卡片用了 isolation: isolate 建立层叠上下文, 菜单的 z-index 只在卡片内生效,
+   不提升卡片的话菜单会被后面的卡片盖住(被裁切/穿透)。 */
+.card:has(.sel.is-open) {
+  z-index: 30;
 }
 
 .sel.is-open .sel-menu {
