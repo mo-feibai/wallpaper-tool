@@ -1,7 +1,7 @@
 ﻿# 构建 WallpaperTool 安装包
-# 用法: .\build-installer.ps1 [-Version 0.2.0]
+# 用法: .\build-installer.ps1 [-Version 0.3.0]
 param(
-    [string]$Version = "0.2.0"
+    [string]$Version = "0.3.0"
 )
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -9,18 +9,26 @@ $root = $PSScriptRoot
 # 1. 构建主程序(裁剪体积)
 Push-Location $root
 try {
-    # 1) 确保 exe 的 Windows 资源(图标+版本信息)已嵌入。
+    # 1) 生成 exe 的 Windows 资源(图标+版本信息)。
     #    Go 默认不生成 .syso, 缺失时 exe 在任务栏/资源管理器里没有图标。
-    if (-not (Test-Path "rsrc_wallpaper-tool.syso")) {
-        Write-Host "[0/3] 生成 exe 图标资源..." -ForegroundColor Cyan
-        $gviArgs = @(
-            "run", "github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest",
-            "-icon", "$root\internal\assets\icon.ico",
-            "-o", "rsrc_wallpaper-tool.syso", "build\gvi.json"
-        )
-        & go @gviArgs
-        if ($LASTEXITCODE -ne 0) { throw "生成 syso 失败" }
-    }
+    #    版本号由 -Version 统一驱动, 避免 exe 版本信息与安装包版本不一致。
+    Write-Host "[0/3] 生成 exe 图标资源..." -ForegroundColor Cyan
+    $parts = $Version.Split('.')
+    $num = '"Major": ' + $parts[0] + ', "Minor": ' + $parts[1] + ', "Patch": ' + $parts[2] + ', "Build": 0'
+    $gvi = [System.IO.File]::ReadAllText((Join-Path $root "build\gvi.json"), (New-Object System.Text.UTF8Encoding($false)))
+    $gvi = $gvi -replace '"FileVersion":\s*\{[^}]*\}', ('"FileVersion": { ' + $num + ' }')
+    $gvi = $gvi -replace '"ProductVersion":\s*\{[^}]*\}', ('"ProductVersion": { ' + $num + ' }')
+    $gvi = $gvi -replace '"FileVersion":\s*"\d+\.\d+\.\d+"', ('"FileVersion": "' + $Version + '"')
+    $gvi = $gvi -replace '"ProductVersion":\s*"\d+\.\d+\.\d+"', ('"ProductVersion": "' + $Version + '"')
+    $tmpGvi = Join-Path $env:TEMP "wallpaper-tool-gvi.json"
+    [System.IO.File]::WriteAllText($tmpGvi, $gvi, (New-Object System.Text.UTF8Encoding($false)))
+    $gviArgs = @(
+        "run", "github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest",
+        "-icon", "$root\internal\assets\icon.ico",
+        "-o", "rsrc_wallpaper-tool.syso", $tmpGvi
+    )
+    & go @gviArgs
+    if ($LASTEXITCODE -ne 0) { throw "生成 syso 失败" }
 
     go build -trimpath -ldflags "-s -w -H=windowsgui" -o wallpaper-tool.exe .
     if ($LASTEXITCODE -ne 0) { throw "go build failed" }
