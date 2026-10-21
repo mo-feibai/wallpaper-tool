@@ -28,11 +28,11 @@
       <div class="previews">
         <div class="preview">
           <p class="preview-title">桌面壁纸</p>
-          <img id="preview" src="/api/current-image" alt="当前桌面壁纸预览">
+          <img id="preview" alt="当前桌面壁纸预览">
         </div>
         <div class="preview" id="lock-preview-wrap" style="display:none">
           <p class="preview-title">锁屏壁纸</p>
-          <img id="lock-preview" src="/api/lockscreen-image" alt="当前锁屏壁纸预览">
+          <img id="lock-preview" alt="当前锁屏壁纸预览">
         </div>
       </div>
       <div class="info">
@@ -242,6 +242,26 @@
 <footer class="footer">
   <span>壁纸工具 v<span id="app-version" class="mono">-</span></span>
 </footer>
+
+<!-- 高清大图: 双击预览图或历史缩略图打开原图 -->
+<div id="lightbox" class="lightbox" role="dialog" aria-modal="true" hidden>
+  <div class="lightbox-stage">
+    <p id="lightbox-loading" class="lightbox-loading">加载原图…</p>
+    <img id="lightbox-img" alt="高清大图">
+  </div>
+  <div class="lightbox-bar">
+    <div class="lightbox-info">
+      <span class="src-badge" id="lightbox-badge">-</span>
+      <span class="mono" id="lightbox-id">-</span>
+      <span class="lightbox-size mono" id="lightbox-size"></span>
+      <span class="lightbox-note" id="lightbox-note"></span>
+    </div>
+    <div class="lightbox-actions">
+      <a id="lightbox-link" class="ghost-link" href="#" target="_blank" rel="noopener">查看来源页</a>
+      <button type="button" id="lightbox-close">关闭 (Esc)</button>
+    </div>
+  </div>
+</div>
 
 <script src="/app.js"></script>
 </body>

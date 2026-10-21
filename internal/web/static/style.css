@@ -237,6 +237,10 @@ main {
 .preview img {
   display: block;
   width: 100%;
+  /* 先用常见比例占位, 拿到图片真实尺寸后由脚本改写, 避免加载时布局跳动 */
+  aspect-ratio: 16 / 9;
+  min-height: 120px;
+  background: rgba(8, 10, 16, 0.34);
   border-radius: var(--r-frame);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.16),
@@ -739,6 +743,17 @@ input[type="checkbox"] {
   object-fit: cover;
 }
 
+/* 派生图生成失败或文件刚被清理时的占位样式:
+   保留条目本身, 避免把仍然有效的历史记录误删 */
+.history li.is-broken img {
+  opacity: 0.22;
+  filter: grayscale(1);
+}
+
+.history li.is-broken .meta {
+  opacity: 0.5;
+}
+
 .history .meta {
   display: flex;
   align-items: center;
@@ -879,6 +894,141 @@ input[type="number"] {
   padding: 0 22px 30px;
   font-size: 12px;
   color: var(--ink-faint);
+}
+
+/* ---------- 高清大图浮层 ---------- */
+
+/* 打开浮层时锁定滚动: 用 padding-right 补回滚动条宽度,
+   否则滚动条消失会让整页内容横向跳一下(观感上像闪屏) */
+html.lightbox-on {
+  overflow: hidden;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: rgba(5, 7, 11, 0.9);
+  backdrop-filter: blur(22px) saturate(120%);
+  -webkit-backdrop-filter: blur(22px) saturate(120%);
+  /* 遮罩快速淡入, 让图片的展开动画成为视觉主体 */
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.lightbox.is-visible {
+  opacity: 1;
+}
+
+/* 关闭时遮罩退场必须比图片收缩更慢:
+   否则遮罩先淡完, 图片后一半的收缩完全看不见, 观感就是"没有关闭动画" */
+.lightbox.is-closing {
+  transition: opacity 0.34s ease 0.06s;
+}
+
+.lightbox[hidden] {
+  display: none;
+}
+
+.lightbox-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 26px 26px 12px;
+}
+
+.lightbox-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 14px;
+  box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.95);
+  will-change: transform, opacity, filter;
+}
+
+/* 禁止复制/拖拽高清大图 */
+.lightbox,
+.lightbox-stage img {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+.lightbox-loading {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.lightbox-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 0 26px 22px;
+  padding: 12px 16px;
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  background: rgba(14, 17, 26, 0.72);
+  /* 图片展开落位后信息条再滑入, 层次更清楚 */
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.32s ease 0.26s,
+    transform 0.4s cubic-bezier(.2, .8, .3, 1) 0.26s;
+}
+
+.lightbox.is-visible .lightbox-bar {
+  opacity: 1;
+  transform: none;
+}
+
+/* 关闭时信息条立即退场, 不留延迟造成的拖沓感 */
+.lightbox.is-closing .lightbox-bar {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.lightbox-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.lightbox-size {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.lightbox-note {
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.lightbox-actions .ghost-link {
+  margin-top: 0;
+}
+
+/* 预览图与缩略图提示可双击查看大图 */
+.preview img,
+.history img {
+  cursor: zoom-in;
 }
 
 /* ---------- 降级与响应式 ---------- */
