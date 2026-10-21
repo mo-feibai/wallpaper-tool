@@ -17,6 +17,7 @@ Windows 桌面壁纸自动更换工具。从 [Wallhaven](https://wallhaven.cc) �
 - **缓存清理策略**：按最大张数、按最大保存天数（当前桌面图与锁屏图不清理）
 - **系统托盘**：下一张 / 上一张 / 暂停 / 打开配置 / 打开壁纸文件夹 / 退出
 - **本地 Web 配置页**：内嵌于二进制，仅监听 `127.0.0.1`，实时预览与历史；配置按数据源分组，滚动流畅
+- **高清大图**：双击当前壁纸、锁屏壁纸或任一历史缩略图，即可全屏查看原图分辨率大图（Esc 或点击空白关闭）
 - **版本与更新提示**：页脚显示当前版本；比对 GitHub 仓库的 tag，发现新版本时顶部提示并可跳转下载
 - **开机自启**：写入 `HKCU\...\Run`，无需管理员权限
 - **健壮性**：单实例保护；配置版本号防止长期未刷新的旧页面覆盖新配置
@@ -101,6 +102,7 @@ go build -trimpath -ldflags "-s -w -H=windowsgui -X wallpaper-tool/internal/vers
 | `state.json` | 运行状态：当前壁纸、历史、预取队列、锁屏目标等 |
 | `log.txt` | 运行日志 |
 | `cache/` | 壁纸缓存（可用 `cache.dir` 改到别处） |
+| `web-images/` | 配置页派生图片缓存（缩略图/预览/背景），与壁纸缓存独立，不计入张数与天数限制 |
 | `lockscreen_target.txt` | 待应用的锁屏图片路径，供高权限计划任务读取 |
 | `icon.png` | 通知图标（启动时写出） |
 | `update_cache.json` | 更新检查缓存（ETag 与最近一次检查时间） |
@@ -121,7 +123,8 @@ go build -trimpath -ldflags "-s -w -H=windowsgui -X wallpaper-tool/internal/vers
 | POST | `/api/lockscreen/remove` | 移除锁屏计划任务并清除锁屏策略 |
 | GET | `/api/current-image` | 当前桌面壁纸图片 |
 | GET | `/api/lockscreen-image` | 当前锁屏壁纸图片 |
-| GET | `/api/history-image?id=<id>` | 指定历史壁纸图片 |
+| GET | `/api/history-image?id=<id>` | 指定历史壁纸原图（可选 `source` 与 `v` 精确匹配） |
+| GET | `/api/display-image?type=<desktop\|lock>&source=<源>&id=<ID>&variant=<thumb\|preview\|background>&v=<版本>` | 网页展示用派生图片（缩略图/预览/背景），由原图按需缩放生成并缓存 |
 | GET | `/api/version` | 当前版本与 GitHub 最新 tag（更新提示） |
 
 ## 工作原理
