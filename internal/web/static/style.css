@@ -702,6 +702,55 @@ select option {
   color: var(--ink);
 }
 
+/* ---------- 深浅色模式设置 ---------- */
+
+.checks .inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: 18px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--ink-dim);
+  cursor: default;
+}
+
+.checks .inline-field:hover {
+  color: var(--ink-dim);
+}
+
+.checks .inline-field select,
+.checks .inline-field input {
+  margin: 0;
+}
+
+.checks .inline-field input[type="number"] {
+  width: 116px;
+}
+
+.checks .inline-field input[type="time"] {
+  width: 104px;
+}
+
+.dark-sub {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 0;
+  margin: 2px 0 4px;
+}
+
+.dark-sub.is-on {
+  display: flex;
+}
+
+.checks .hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
 input[type="checkbox"] {
   width: 16px;
   height: 16px;

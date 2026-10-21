@@ -80,6 +80,7 @@ func (s *Server) Start() (int, error) {
 	mux.HandleFunc("GET /api/display-image", s.handleDisplayImage)
 	mux.HandleFunc("GET /assets/icon.png", s.handleAppIcon)
 	mux.HandleFunc("GET /api/version", s.handleVersion)
+	mux.HandleFunc("GET /api/theme/geo", s.handleThemeGeo)
 
 	sub, subErr := fs.Sub(staticFiles, "static")
 	if subErr != nil {

@@ -239,8 +239,78 @@
       <div class="checks">
         <span class="group">主题联动</span>
         <div>
-          <label title="按壁纸主色设置 Windows 强调色"><input type="checkbox" id="f-accent">按壁纸取色设置强调色</label>
-          <label title="按壁纸明暗自动切换系统深/浅色模式"><input type="checkbox" id="f-lightdark">按壁纸明暗切换深浅色</label>
+          <label title="开启系统原生的从背景取色, 强调色随壁纸实时变化"><input type="checkbox" id="f-accent">按壁纸取色设置强调色</label>
+        </div>
+      </div>
+      <div class="checks">
+        <span class="group">深浅色模式</span>
+        <div>
+          <label class="inline-field">模式
+            <select id="f-dark-mode">
+              <option value="off">关闭</option>
+              <option value="fixed">固定时段</option>
+              <option value="sun">日出日落</option>
+            </select>
+          </label>
+          <div class="dark-sub" id="wrap-dark-fixed">
+            <label class="inline-field">白天开始
+              <input type="time" id="f-dark-daystart">
+            </label>
+            <label class="inline-field">夜晚开始
+              <input type="time" id="f-dark-nightstart">
+            </label>
+          </div>
+          <div class="dark-sub" id="wrap-dark-sun">
+            <label class="inline-field">纬度
+              <input type="number" id="f-dark-lat" step="0.0001" min="-90" max="90" placeholder="39.9042">
+            </label>
+            <label class="inline-field">经度
+              <input type="number" id="f-dark-lon" step="0.0001" min="-180" max="180" placeholder="116.4074">
+            </label>
+            <label class="inline-field">日出后延后
+              <input type="number" id="f-dark-dawn" min="0" max="180"> 分
+            </label>
+            <label class="inline-field">日落前提前
+              <input type="number" id="f-dark-dusk" min="0" max="180"> 分
+            </label>
+            <div class="inline-field">
+              <button type="button" id="btn-geo">检测位置</button>
+              <select id="f-dark-city">
+                <option value="">常用城市…</option>
+                <option value="39.9042,116.4074">北京</option>
+                <option value="31.2304,121.4737">上海</option>
+                <option value="23.1291,113.2644">广州</option>
+                <option value="22.5431,114.0579">深圳</option>
+                <option value="30.5728,104.0668">成都</option>
+                <option value="29.5630,106.5516">重庆</option>
+                <option value="32.0603,118.7969">南京</option>
+                <option value="30.2741,120.1551">杭州</option>
+                <option value="36.6512,117.1201">济南</option>
+                <option value="34.3416,108.9398">西安</option>
+                <option value="38.0428,114.5149">石家庄</option>
+                <option value="41.8057,123.4315">沈阳</option>
+                <option value="45.8038,126.5349">哈尔滨</option>
+                <option value="43.8256,125.3235">长春</option>
+                <option value="24.4798,118.0894">厦门</option>
+                <option value="22.5726,113.0819">福州</option>
+                <option value="28.6820,117.0750">南昌</option>
+                <option value="34.7466,113.6254">郑州</option>
+                <option value="25.2736,110.2900">桂林</option>
+                <option value="39.3434,117.3616">天津</option>
+                <option value="22.8133,108.3665">南宁</option>
+                <option value="36.0611,120.3833">青岛</option>
+                <option value="1.3521,103.8198">新加坡</option>
+                <option value="35.6762,139.6503">东京</option>
+                <option value="37.7749,-122.4194">旧金山</option>
+                <option value="40.7128,-74.0060">纽约</option>
+                <option value="51.5074,-0.1278">伦敦</option>
+              </select>
+            </div>
+          </div>
+          <label title="关闭时只改应用主题, 系统界面(任务栏/开始菜单)保持你自己的选择">
+            <input type="checkbox" id="f-dark-systemui">同时切换系统界面主题(任务栏/开始菜单)
+          </label>
+          <p class="hint" id="dark-summary"></p>
         </div>
       </div>
       <div class="btn-row">

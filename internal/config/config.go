@@ -3,10 +3,12 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -57,12 +59,43 @@ type Local struct {
 	Dir string `yaml:"dir" json:"dir"`
 }
 
+// 深浅色模式自动切换的取值。
+const (
+	// DarkModeOff 不自动切换。
+	DarkModeOff = "off"
+	// DarkModeFixed 按固定时段(白天/夜晚起止时间)。
+	DarkModeFixed = "fixed"
+	// DarkModeSun 按当地日出日落时间。
+	DarkModeSun = "sun"
+)
+
+// DarkMode 深浅色模式自动切换设置。
+type DarkMode struct {
+	// Mode off | fixed | sun
+	Mode string `yaml:"mode" json:"mode"`
+	// DayStart 固定时段: 白天开始 "08:00"。
+	DayStart string `yaml:"day_start" json:"day_start"`
+	// NightStart 固定时段: 夜晚开始 "19:00"。
+	NightStart string `yaml:"night_start" json:"night_start"`
+	// Latitude 太阳模式: 纬度(北正南负)。
+	Latitude float64 `yaml:"latitude" json:"latitude"`
+	// Longitude 太阳模式: 经度(东正西负)。
+	Longitude float64 `yaml:"longitude" json:"longitude"`
+	// DawnOffset 太阳模式: 日出后延后多少分钟切回浅色。
+	DawnOffset int `yaml:"dawn_offset" json:"dawn_offset"`
+	// DuskOffset 太阳模式: 日落前提前多少分钟切到深色。
+	DuskOffset int `yaml:"dusk_offset" json:"dusk_offset"`
+	// SystemUI 是否同时切换系统界面主题(任务栏/开始菜单)。
+	SystemUI bool `yaml:"system_ui" json:"system_ui"`
+}
+
 // Theme 主题联动设置。
-// AccentFromWallpaper: 按壁纸主色设置 Windows 强调色。
-// AutoLightDark: 按壁纸明暗自动切换系统深/浅色模式。
+// AccentFromWallpaper: 开启系统原生的"从背景自动选取主题色",
+// 强调色由 Windows 自己从壁纸提取并随换图实时更新。
 type Theme struct {
 	AccentFromWallpaper bool `yaml:"accent_from_wallpaper" json:"accent_from_wallpaper"`
-	AutoLightDark       bool `yaml:"auto_light_dark" json:"auto_light_dark"`
+	// DarkMode 深浅色模式自动切换(按固定时段或日出日落)。
+	DarkMode DarkMode `yaml:"dark_mode" json:"dark_mode"`
 }
 
 // SourceConfig 指定各目标使用的数据源。
@@ -121,6 +154,45 @@ type Config struct {
 	Web                 Web   `yaml:"web" json:"web"`
 }
 
+// sanitizeDarkMode 修正深浅色模式的非法配置值。
+func (c *Config) sanitizeDarkMode() {
+	d := &c.Theme.DarkMode
+	switch d.Mode {
+	case DarkModeOff, DarkModeFixed, DarkModeSun:
+	default:
+		d.Mode = DarkModeOff
+	}
+	d.DayStart = normalizeClock(d.DayStart, "08:00")
+	d.NightStart = normalizeClock(d.NightStart, "19:00")
+	if d.Latitude < -90 || d.Latitude > 90 {
+		d.Latitude = 0
+	}
+	if d.Longitude < -180 || d.Longitude > 180 {
+		d.Longitude = 0
+	}
+	if d.DawnOffset < -180 || d.DawnOffset > 180 {
+		d.DawnOffset = 0
+	}
+	if d.DuskOffset < -180 || d.DuskOffset > 180 {
+		d.DuskOffset = 0
+	}
+}
+
+// normalizeClock 规范化 "HH:MM" 时刻, 非法时回退到默认值。
+func normalizeClock(s, def string) string {
+	t := strings.TrimSpace(s)
+	h, m, ok := strings.Cut(t, ":")
+	if !ok {
+		return def
+	}
+	hi, err1 := strconv.Atoi(h)
+	mi, err2 := strconv.Atoi(m)
+	if err1 != nil || err2 != nil || hi < 0 || hi > 23 || mi < 0 || mi > 59 {
+		return def
+	}
+	return fmt.Sprintf("%02d:%02d", hi, mi)
+}
+
 // Default 返回默认配置。
 func Default() Config {
 	return Config{
@@ -170,6 +242,7 @@ func (c *Config) Sanitize() {
 		// 老版本配置里没有这个键 -> 沿用默认开启
 		c.PauseWhenFullscreen = boolPtr(true)
 	}
+	c.sanitizeDarkMode()
 	if c.IntervalMinutes < 1 {
 		c.IntervalMinutes = 1
 	}

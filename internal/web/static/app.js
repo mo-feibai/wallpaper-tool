@@ -112,7 +112,16 @@ function fillForm(c) {
   $("f-local-dir").value = (c.local && c.local.dir) || "";
   $("f-pause-fullscreen").checked = c.pause_when_fullscreen !== false;
   $("f-accent").checked = !!(c.theme && c.theme.accent_from_wallpaper);
-  $("f-lightdark").checked = !!(c.theme && c.theme.auto_light_dark);
+  const dm = (c.theme && c.theme.dark_mode) || {};
+  $("f-dark-mode").value = dm.mode || "off";
+  $("f-dark-daystart").value = dm.day_start || "08:00";
+  $("f-dark-nightstart").value = dm.night_start || "19:00";
+  $("f-dark-lat").value = dm.latitude !== undefined ? dm.latitude : "";
+  $("f-dark-lon").value = dm.longitude !== undefined ? dm.longitude : "";
+  $("f-dark-dawn").value = dm.dawn_offset !== undefined ? dm.dawn_offset : 30;
+  $("f-dark-dusk").value = dm.dusk_offset !== undefined ? dm.dusk_offset : 30;
+  $("f-dark-systemui").checked = dm.system_ui !== false;
+  updateDarkModeVisible();
   updateTopRangeVisible();
 }
 
@@ -153,7 +162,16 @@ function collectForm() {
     local: { dir: $("f-local-dir").value.trim() },
     theme: {
       accent_from_wallpaper: $("f-accent").checked,
-      auto_light_dark: $("f-lightdark").checked,
+      dark_mode: {
+        mode: $("f-dark-mode").value,
+        day_start: $("f-dark-daystart").value || "08:00",
+        night_start: $("f-dark-nightstart").value || "19:00",
+        latitude: parseFloat($("f-dark-lat").value) || 0,
+        longitude: parseFloat($("f-dark-lon").value) || 0,
+        dawn_offset: parseInt($("f-dark-dawn").value, 10) || 0,
+        dusk_offset: parseInt($("f-dark-dusk").value, 10) || 0,
+        system_ui: $("f-dark-systemui").checked,
+      },
     },
     cache: {
       dir: $("f-cachedir").value.trim(),
@@ -167,6 +185,46 @@ function collectForm() {
 function updateTopRangeVisible() {
   $("wrap-toprange").style.display =
     $("f-sorting").value === "toplist" ? "" : "none";
+}
+
+// 根据所选模式显示对应的设置项
+function updateDarkModeVisible() {
+  const mode = $("f-dark-mode").value;
+  $("wrap-dark-fixed").classList.toggle("is-on", mode === "fixed");
+  $("wrap-dark-sun").classList.toggle("is-on", mode === "sun");
+}
+
+// 把状态里的日出日落信息显示出来(便于确认经纬度填对没有)
+function renderDarkSummary(dm) {
+  const el = $("dark-summary");
+  if (!el) return;
+  if (!dm || !dm.enabled) {
+    const mode = $("f-dark-mode").value;
+    if (mode === "off") {
+      el.textContent = "深浅色自动切换已关闭, 系统保持你手动设置的样式";
+      return;
+    }
+  }
+  const parts = [];
+  // 零值时间(0001-01-01)表示该模式下没有日出日落, 不显示
+  const hasTime = (s) => !!s && s.slice(0, 4) !== "0001";
+  if (dm && hasTime(dm.sunrise)) parts.push("日出 " + dm.sunrise.slice(11, 16));
+  if (dm && hasTime(dm.sunset)) parts.push("日落 " + dm.sunset.slice(11, 16));
+  if (dm && hasTime(dm.next_change)) {
+    // 跨日的切换要带上日期, 否则看不出是今天还是明天
+    const nc = new Date(dm.next_change);
+    const today = new Date();
+    const sameDay =
+      nc.getFullYear() === today.getFullYear() &&
+      nc.getMonth() === today.getMonth() &&
+      nc.getDate() === today.getDate();
+    parts.push(
+      "下次切换 " + (sameDay ? "" : nc.getMonth() + 1 + "月" + nc.getDate() + "日 ") +
+        dm.next_change.slice(11, 16)
+    );
+  }
+  if (dm && dm.mode !== undefined) parts.push(dm.mode === 1 ? "当前浅色" : "当前深色");
+  el.textContent = parts.length ? parts.join(" · ") : "";
 }
 
 // 方向下拉为"自定义"时发送空 orientation(沿用 ratios 文本), 其余发送所选方向
@@ -342,6 +400,8 @@ function showLinkError(msg) {
 
 async function applyStatus(st) {
   lastStatus = st;
+  // 深浅色模式: 显示日出日落与下次切换时刻
+  renderDarkSummary(st.dark_mode);
   // 桌面壁纸: 版本变化时才重新拉图, 解码成功后再切换, 保证信息与画面一致
   const dw = (st.current && st.current.web_image) || null;
   // 用真实尺寸预留位置, 避免图片加载时布局跳动
@@ -963,6 +1023,36 @@ async function removeLockScreen() {
 
 $("cfg-form").addEventListener("submit", saveConfig);
 $("f-sorting").addEventListener("change", updateTopRangeVisible);
+$("f-dark-mode").addEventListener("change", updateDarkModeVisible);
+$("f-dark-city").addEventListener("change", (e) => {
+  const v = e.target.value;
+  if (!v) return;
+  const [lat, lon] = v.split(",");
+  $("f-dark-lat").value = lat;
+  $("f-dark-lon").value = lon;
+  e.target.value = "";
+  showMsg("已填入城市坐标, 点击保存设置生效", false);
+});
+$("btn-geo").addEventListener("click", async (e) => {
+  const btn = e.target;
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = "检测中…";
+  try {
+    const r = await api("/api/theme/geo");
+    $("f-dark-lat").value = Number(r.latitude).toFixed(4);
+    $("f-dark-lon").value = Number(r.longitude).toFixed(4);
+    showMsg(
+      "已检测到" + (r.city || "当前位置") + " 的坐标, 点击保存设置生效",
+      false
+    );
+  } catch (err) {
+    showMsg("位置检测失败: " + err.message, true);
+  } finally {
+    btn.textContent = old;
+    btn.disabled = false;
+  }
+});
 $("f-orientation").addEventListener("change", updateRatioControls);
 $("f-src-desktop").addEventListener("change", updateSourceVisibility);
 $("f-src-lock").addEventListener("change", updateSourceVisibility);

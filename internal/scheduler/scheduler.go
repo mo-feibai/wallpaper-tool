@@ -41,6 +41,8 @@ type Status struct {
 	LockCurrent state.Item   `json:"lock_current"`
 	History     []state.Item `json:"history"`
 	LockHistory []state.Item `json:"lock_history"`
+	// DarkMode 深浅色模式的当前状态(供页面显示日出日落与下次切换)。
+	DarkMode theme.DarkModeStatus `json:"dark_mode"`
 }
 
 // Scheduler 调度器。
@@ -53,10 +55,14 @@ type Scheduler struct {
 	sources map[string]source.Source // 按数据源名索引
 	log     *log.Logger
 	ticker  *time.Ticker
-	stop    chan struct{}
-	nextRun time.Time
-	lastErr string
-	started bool
+	// darkTicker 深浅色模式心跳(与换图定时器独立)
+	darkTicker *time.Ticker
+	// darkStatus 最近一次的深浅色判断结果
+	darkStatus theme.DarkModeStatus
+	stop       chan struct{}
+	nextRun    time.Time
+	lastErr    string
+	started    bool
 }
 
 // New 创建调度器。sources 为已注册的数据源集合。
@@ -87,7 +93,7 @@ func (s *Scheduler) UpdateConfig(cfg config.Config) error {
 	oldDesktopSrc := s.cfg.Sources.Desktop
 	oldLockSrc := s.cfg.Sources.LockScreen
 	oldAccent := s.cfg.Theme.AccentFromWallpaper
-	oldLightDark := s.cfg.Theme.AutoLightDark
+	oldDarkMode := s.cfg.Theme.DarkMode
 	if err := config.Save(paths.ConfigFile(), cfg); err != nil {
 		return fmt.Errorf("保存配置失败: %w", err)
 	}
@@ -118,29 +124,26 @@ func (s *Scheduler) UpdateConfig(cfg config.Config) error {
 	}
 
 	// 主题联动开关变化时立即生效, 不必等下一次换图:
-	// 开启 -> 按当前壁纸取色; 关闭 -> 撤销此前写入的设置。
+	// 开启 -> 让系统从背景自动取色; 关闭 -> 撤销此前写入的设置。
 	if oldAccent != cfg.Theme.AccentFromWallpaper {
 		if cfg.Theme.AccentFromWallpaper {
-			s.applyThemeToCurrent()
+			s.applyTheme()
 		} else {
 			s.restoreTheme("主题联动已关闭, 已恢复系统默认配色", theme.RestoreAccent, !cfg.Theme.AccentFromWallpaper)
 		}
 	}
-	if oldLightDark != cfg.Theme.AutoLightDark {
-		if cfg.Theme.AutoLightDark {
-			s.applyThemeToCurrent()
-		} else {
-			s.restoreTheme("深浅色联动已关闭, 应用主题已恢复为系统界面设置", theme.RestoreLightDark, !cfg.Theme.AutoLightDark)
-		}
+	// 深浅色模式配置变化后立即检查一次, 不用等下一个心跳
+	if oldDarkMode != cfg.Theme.DarkMode {
+		go s.runDarkMode()
 	}
 	return nil
 }
 
-// themeConfig 返回当前生效的主题开关状态。
-func (s *Scheduler) themeConfig() (accent, lightDark bool) {
+// themeAccentEnabled 返回强调色联动是否处于开启状态。
+func (s *Scheduler) themeAccentEnabled() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.cfg.Theme.AccentFromWallpaper, s.cfg.Theme.AutoLightDark
+	return s.cfg.Theme.AccentFromWallpaper
 }
 
 // restoreTheme 在后台执行恢复动作。
@@ -169,15 +172,82 @@ func (s *Scheduler) restoreTheme(msg string, fn func() error, stillOff bool) {
 	}()
 }
 
-// applyThemeToCurrent 按当前桌面壁纸应用主题联动(开关刚打开时用)。
+// darkModeTick 深浅色检查的心跳间隔。
+const darkModeTick = time.Minute
+
+// runDarkMode 按配置检查并应用深浅色模式。
 //
-// 放在后台执行: 取色需要解码整张原图(约数百毫秒), 不能拖慢配置保存的响应。
-// 开关状态在真正执行前重新读取, 避免用户已经关掉开关后仍然写入主题。
-func (s *Scheduler) applyThemeToCurrent() {
+//   - 功能关闭 -> 若此前改写过系统设置, 用备份恢复用户原本的取值
+//   - 功能开启 -> 计算此刻应使用的模式, 与当前不一致才写入
+//
+// 任何失败都只记日志, 不影响换图。
+func (s *Scheduler) runDarkMode() {
+	cfg := s.Config()
+	dm := cfg.Theme.DarkMode
 	st := s.state.Get()
-	if st.Current.Path == "" {
+
+	// 无论是否启用都算一次, 页面要用它显示日出日落与下次切换时刻
+	if status, err := theme.DesiredMode(time.Now(), dm); err == nil {
+		s.mu.Lock()
+		s.darkStatus = status
+		s.mu.Unlock()
+	} else {
+		s.log.Printf("深浅色模式计算失败: %v", err)
+	}
+
+	if dm.Mode == config.DarkModeOff || dm.Mode == "" {
+		if st.ThemeBackup != nil {
+			apps, system := st.ThemeBackup.Apps, st.ThemeBackup.System
+			if err := theme.RestoreDarkMode(apps, system); err != nil {
+				s.log.Printf("恢复深浅色设置失败: %v", err)
+				return
+			}
+			_ = s.state.Update(func(u *state.State) { u.ThemeBackup = nil })
+			s.log.Printf("深浅色自动切换已关闭, 已恢复用户原本的主题设置")
+		}
 		return
 	}
+
+	status, err := theme.DesiredMode(time.Now(), dm)
+	if err != nil {
+		return
+	}
+
+	cur, err := theme.ReadDarkMode()
+	if err != nil {
+		s.log.Printf("读取当前深浅色设置失败: %v", err)
+		return
+	}
+	same := cur.Valid && cur.Apps == status.Mode
+	if dm.SystemUI {
+		same = same && cur.System == status.Mode
+	}
+	if same {
+		return // 已经是目标模式
+	}
+
+	// 第一次改写前先备份用户原本的设置, 关闭功能时写回
+	if st.ThemeBackup == nil && cur.Valid {
+		backup := state.ThemeBackup{Apps: cur.Apps, System: cur.System}
+		_ = s.state.Update(func(u *state.State) { u.ThemeBackup = &backup })
+	}
+	if err := theme.ApplyDarkMode(status.Mode == theme.ModeLight, dm.SystemUI); err != nil {
+		s.log.Printf("切换深浅色模式失败: %v", err)
+		return
+	}
+	s.log.Printf("深浅色模式已切换为%s(%s)", darkModeName(status.Mode), status.Reason)
+}
+
+// darkModeName 返回深浅色模式的中文名。
+func darkModeName(mode int) string {
+	if mode == theme.ModeLight {
+		return "浅色"
+	}
+	return "深色"
+}
+
+// applyTheme 开启系统原生的"从背景自动选取主题色"。
+func (s *Scheduler) applyTheme() {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -187,16 +257,14 @@ func (s *Scheduler) applyThemeToCurrent() {
 		// 主题操作串行化, 避免与"关闭"动作互相覆盖
 		s.themeMu.Lock()
 		defer s.themeMu.Unlock()
-		accent, lightDark := s.themeConfig()
-		if !accent && !lightDark {
+		if !s.themeAccentEnabled() {
 			return
 		}
-		res, err := theme.Apply(st.Current.Path, accent, lightDark)
-		if err != nil {
+		if err := theme.Apply(true); err != nil {
 			s.log.Printf("主题联动失败: %v", err)
 			return
 		}
-		s.logThemeResult(res, lightDark)
+		s.log.Printf("已开启系统原生的从背景取色, 强调色随壁纸实时变化")
 	}()
 }
 
@@ -220,9 +288,26 @@ func (s *Scheduler) Start() {
 	s.stop = make(chan struct{})
 	s.ticker = time.NewTicker(time.Duration(s.cfg.IntervalMinutes) * time.Minute)
 	s.nextRun = time.Now().Add(time.Duration(s.cfg.IntervalMinutes) * time.Minute)
+	// 深浅色心跳独立于换图定时器: 切换时刻由日出日落决定, 不能等换图才检查
+	s.darkTicker = time.NewTicker(darkModeTick)
 	stop := s.stop
 	ticker := s.ticker
+	darkTicker := s.darkTicker
 	s.mu.Unlock()
+
+	// 启动时立即检查一次, 不用等第一个心跳
+	go s.runDarkMode()
+
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-darkTicker.C:
+				s.runDarkMode()
+			}
+		}
+	}()
 
 	go func() {
 		for {
@@ -267,6 +352,9 @@ func (s *Scheduler) Stop() {
 	}
 	if s.ticker != nil {
 		s.ticker.Stop()
+	}
+	if s.darkTicker != nil {
+		s.darkTicker.Stop()
 	}
 }
 
@@ -371,6 +459,7 @@ func (s *Scheduler) Status() Status {
 	s.mu.Lock()
 	lastErr := s.lastErr
 	nextRun := s.nextRun
+	dark := s.darkStatus
 	s.mu.Unlock()
 	st := s.state.Get()
 	return Status{
@@ -383,6 +472,7 @@ func (s *Scheduler) Status() Status {
 		LockCurrent:   st.LockCurrent,
 		History:       st.History,
 		LockHistory:   st.LockHistory,
+		DarkMode:      dark,
 	}
 }
 
@@ -421,7 +511,7 @@ func (s *Scheduler) applyNext() error {
 		desktopItem = item
 		desktopOK = true
 		s.markSeen(targetDesktop, item)
-		s.applyTheme(item)
+		s.applyTheme()
 		_ = s.state.Update(func(u *state.State) {
 			u.Current = item
 			u.History = append([]state.Item{item}, u.History...)
@@ -491,37 +581,6 @@ func (s *Scheduler) applyNext() error {
 	s.cleanupCache()
 	s.notifyRotation(desktopItem, lockItem)
 	return nil
-}
-
-// applyTheme 按配置把壁纸联动到 Windows 主题(强调色/深浅色模式)。
-// 失败只记日志, 不影响换图本身。
-func (s *Scheduler) applyTheme(item state.Item) {
-	if item.Path == "" {
-		return
-	}
-	if !s.cfg.Theme.AccentFromWallpaper && !s.cfg.Theme.AutoLightDark {
-		return
-	}
-	res, err := theme.Apply(item.Path, s.cfg.Theme.AccentFromWallpaper, s.cfg.Theme.AutoLightDark)
-	if err != nil {
-		s.log.Printf("主题联动失败: %v", err)
-		return
-	}
-	s.logThemeResult(res, s.cfg.Theme.AutoLightDark)
-}
-
-// logThemeResult 记录一次主题联动的结果。
-func (s *Scheduler) logThemeResult(res theme.Result, lightDark bool) {
-	if res.Color != "" {
-		s.log.Printf("theme synced from wallpaper: color=%s brightness=%.3f", res.Color, res.Brightness)
-	}
-	if lightDark {
-		if res.Changed {
-			s.log.Printf("深浅色模式已切换为%s", res.ModeName())
-		} else {
-			s.log.Printf("深浅色模式保持%s(亮度处于过渡区或与当前一致)", res.ModeName())
-		}
-	}
 }
 
 // notifyRotation 换图成功后发送 Windows 通知。
