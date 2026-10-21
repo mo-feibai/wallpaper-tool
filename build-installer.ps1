@@ -22,6 +22,8 @@ try {
     $gvi = $gvi -replace '"ProductVersion":\s*"\d+\.\d+\.\d+"', ('"ProductVersion": "' + $Version + '"')
     $tmpGvi = Join-Path $env:TEMP "wallpaper-tool-gvi.json"
     [System.IO.File]::WriteAllText($tmpGvi, $gvi, (New-Object System.Text.UTF8Encoding($false)))
+    # 同步回模板文件, 避免 build\gvi.json 里的版本号长期停留在旧值
+    [System.IO.File]::WriteAllText((Join-Path $root "build\gvi.json"), $gvi, (New-Object System.Text.UTF8Encoding($false)))
     $gviArgs = @(
         "run", "github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest",
         "-icon", "$root\internal\assets\icon.ico",
