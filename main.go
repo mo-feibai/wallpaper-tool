@@ -87,6 +87,7 @@ func runTray() {
 		os.Exit(1)
 	}
 	lg := logging.Setup(paths.LogFile())
+	defer logging.Recover(lg)()
 	lg.Printf("=== starting tray mode ===")
 
 	// 单实例检测: 已有实例时弹框提示并退出, 避免托盘图标重复与状态文件写竞争
@@ -144,7 +145,10 @@ func runTray() {
 	defer sched.Stop()
 
 	// 后台检查 GitHub 是否有新版本(失败静默, 绝不打断换图)。
-	go checkUpdates(lg)
+	go func() {
+		defer logging.Recover(lg)()
+		checkUpdates(lg)
+	}()
 
 	tray.Run(tray.Deps{
 		Log:         lg,
