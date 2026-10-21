@@ -167,16 +167,31 @@ func runTray() {
 // checkUpdates 定期检查 GitHub 上的最新 tag, 并把结果存入 update 包供 Web 接口读取。
 // 首次检查在后台 goroutine 中进行, 不阻塞启动; 之后每 6 小时查一次。
 func checkUpdates(lg *log.Logger) {
-	check := func() {
+	// 正常间隔 6 小时; 检查失败(如 GitHub 未认证 API 限流)时提前到 1 小时重试,
+	// 限流额度按小时重置, 等 6 小时会白白错过一次更新提示。
+	const (
+		normalInterval = 6 * time.Hour
+		retryInterval  = time.Hour
+	)
+	check := func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		info := update.Check(ctx, version.Current())
 		update.SetInfo(info)
 		lg.Printf("update check: %s", info.Describe())
+		return !info.CheckFailed
 	}
-	check()
-	for range time.Tick(6 * time.Hour) {
-		check()
+	delay := normalInterval
+	if !check() {
+		delay = retryInterval
+	}
+	for {
+		time.Sleep(delay)
+		if check() {
+			delay = normalInterval
+		} else {
+			delay = retryInterval
+		}
 	}
 }
 
