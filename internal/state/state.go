@@ -37,6 +37,9 @@ type State struct {
 	LockHistoryIndex int    `json:"lock_history_index"`
 	Desktop          Cursor `json:"desktop"` // 桌面目标预取队列
 	Lock             Cursor `json:"lock"`    // 锁屏目标预取队列
+	// Seen 记录各目标最近使用过的条目键(源/ID), 按使用顺序排列(旧->新)。
+	// 持久化后重启不会立刻重复旧图; 超过上限时丢弃最旧的。
+	Seen map[string][]string `json:"seen,omitempty"`
 	LockScreenTarget string `json:"lock_screen_target"`
 	TaskInstalled    bool   `json:"task_installed"`
 	Paused           bool   `json:"paused"`
@@ -99,6 +102,12 @@ func (s *Store) Get() State {
 	c.LockHistory = append([]Item(nil), s.st.LockHistory...)
 	c.Desktop.Queue = append([]Item(nil), s.st.Desktop.Queue...)
 	c.Lock.Queue = append([]Item(nil), s.st.Lock.Queue...)
+	if s.st.Seen != nil {
+		c.Seen = make(map[string][]string, len(s.st.Seen))
+		for k, v := range s.st.Seen {
+			c.Seen[k] = append([]string(nil), v...)
+		}
+	}
 	return c
 }
 

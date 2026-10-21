@@ -47,7 +47,23 @@ type Cache struct {
 const (
 	SourceWallhaven = "wallhaven"
 	SourceUnsplash  = "unsplash"
+	// SourceLocal 本地目录数据源: 从用户自己的图片文件夹取图。
+	SourceLocal = "local"
 )
+
+// Local 本地目录数据源设置。
+// Dir 为空时该数据源不可用。
+type Local struct {
+	Dir string `yaml:"dir" json:"dir"`
+}
+
+// Theme 主题联动设置。
+// AccentFromWallpaper: 按壁纸主色设置 Windows 强调色。
+// AutoLightDark: 按壁纸明暗自动切换系统深/浅色模式。
+type Theme struct {
+	AccentFromWallpaper bool `yaml:"accent_from_wallpaper" json:"accent_from_wallpaper"`
+	AutoLightDark       bool `yaml:"auto_light_dark" json:"auto_light_dark"`
+}
 
 // SourceConfig 指定各目标使用的数据源。
 // 桌面与锁屏可以分别选择不同的数据源。
@@ -74,11 +90,17 @@ type Config struct {
 	// Sources 各目标使用的数据源。
 	Sources SourceConfig `yaml:"sources" json:"sources"`
 
+	// Local 本地目录数据源的图片目录。
+	Local Local `yaml:"local" json:"local"`
+
+	// Theme 主题联动(取色)。
+	Theme Theme `yaml:"theme" json:"theme"`
+
 	// UnsplashKey Unsplash Access Key, 仅在选择 unsplash 数据源时需要。
 	// 属于凭据, 不回显到 Web 接口, 也不写进日志。
 	UnsplashKey string `yaml:"unsplash_key" json:"unsplash_key"`
 
-	IntervalMinutes int `yaml:"interval_minutes" json:"interval_minutes"`
+	IntervalMinutes int        `yaml:"interval_minutes" json:"interval_minutes"`
 	Categories      Categories `yaml:"categories" json:"categories"`
 	Purity          Purity     `yaml:"purity" json:"purity"`
 	Query           string     `yaml:"query" json:"query"`
@@ -90,26 +112,31 @@ type Config struct {
 	Orientation     string     `yaml:"orientation" json:"orientation"` // "" | landscape | portrait, 非空时覆盖 ratios
 	Targets         Targets    `yaml:"targets" json:"targets"`
 	DesktopFit      string     `yaml:"desktop_fit" json:"desktop_fit"`
-	Autostart       bool       `yaml:"autostart" json:"autostart"`
-	Cache           Cache      `yaml:"cache" json:"cache"`
-	Web             Web        `yaml:"web" json:"web"`
+	// PauseWhenFullscreen 全屏时跳过自动换图(手动换图不受影响)。
+	// 用指针区分"未设置"与"显式关闭": 老版本配置里没有这个键,
+	// 应当沿用默认开启, 而不是被当成关闭。
+	PauseWhenFullscreen *bool `yaml:"pause_when_fullscreen" json:"pause_when_fullscreen"`
+	Autostart           bool  `yaml:"autostart" json:"autostart"`
+	Cache               Cache `yaml:"cache" json:"cache"`
+	Web                 Web   `yaml:"web" json:"web"`
 }
 
 // Default 返回默认配置。
 func Default() Config {
 	return Config{
-		IntervalMinutes: 30,
-		Categories:      Categories{General: true, Anime: true, People: false},
-		Purity:          Purity{SFW: true, Sketchy: false},
-		Sorting:         "random",
-		Order:           "desc",
-		TopRange:        "1M",
-		AtLeast:         "1920x1080",
-		Sources:         SourceConfig{Desktop: SourceWallhaven, LockScreen: SourceWallhaven},
-		Targets:         Targets{Desktop: true, LockScreen: false},
-		DesktopFit:      "fill",
-		Cache:           Cache{MaxItems: 20},
-		Web:             Web{Port: 0},
+		IntervalMinutes:     30,
+		Categories:          Categories{General: true, Anime: true, People: false},
+		Purity:              Purity{SFW: true, Sketchy: false},
+		Sorting:             "random",
+		Order:               "desc",
+		TopRange:            "1M",
+		AtLeast:             "1920x1080",
+		Sources:             SourceConfig{Desktop: SourceWallhaven, LockScreen: SourceWallhaven},
+		Targets:             Targets{Desktop: true, LockScreen: false},
+		DesktopFit:          "fill",
+		PauseWhenFullscreen: boolPtr(true),
+		Cache:               Cache{MaxItems: 20},
+		Web:                 Web{Port: 0},
 	}
 }
 
@@ -128,14 +155,21 @@ var validFit = map[string]bool{
 
 // validSource 判断数据源名是否受支持。
 func validSource(name string) bool {
-	return name == SourceWallhaven || name == SourceUnsplash
+	return name == SourceWallhaven || name == SourceUnsplash || name == SourceLocal
 }
 
 var resRe = regexp.MustCompile(`^[0-9]{2,5}x[0-9]{2,5}$`)
 var ratioRe = regexp.MustCompile(`^[0-9]{1,3}x[0-9]{1,3}$`)
 
+// boolPtr 返回指向 v 的指针, 便于给 *bool 字段赋默认值。
+func boolPtr(v bool) *bool { return &v }
+
 // Sanitize 就地修正非法配置值，保证写回磁盘与发送给 API 的值始终合法。
 func (c *Config) Sanitize() {
+	if c.PauseWhenFullscreen == nil {
+		// 老版本配置里没有这个键 -> 沿用默认开启
+		c.PauseWhenFullscreen = boolPtr(true)
+	}
 	if c.IntervalMinutes < 1 {
 		c.IntervalMinutes = 1
 	}
@@ -166,6 +200,7 @@ func (c *Config) Sanitize() {
 	if !validSource(c.Sources.LockScreen) {
 		c.Sources.LockScreen = SourceWallhaven
 	}
+	c.Local.Dir = normalizeDir(c.Local.Dir)
 	c.AtLeast = normalizeSize(c.AtLeast)
 	c.Ratios = normalizeRatioList(c.Ratios)
 	if c.Orientation != "landscape" && c.Orientation != "portrait" {

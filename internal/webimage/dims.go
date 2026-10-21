@@ -12,6 +12,12 @@ import (
 	_ "image/png"
 )
 
+// Dimensions 返回图片的方向校正后尺寸(公开给本地目录数据源做分辨率过滤)。
+// 只读取文件头, 不解码像素, 因此开销很小。
+func Dimensions(path string) (int, int, error) {
+	return imageDimensions(path)
+}
+
 // imageDimensions 返回图片的方向校正后尺寸。
 // 只读取文件头, 不解码像素, 因此开销很小。
 func imageDimensions(path string) (int, int, error) {

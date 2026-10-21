@@ -29,6 +29,7 @@ import (
 	"wallpaper-tool/internal/scheduler"
 	"wallpaper-tool/internal/singleinstance"
 	"wallpaper-tool/internal/source"
+	"wallpaper-tool/internal/source/local"
 	"wallpaper-tool/internal/state"
 	"wallpaper-tool/internal/tray"
 	"wallpaper-tool/internal/unsplash"
@@ -190,9 +191,13 @@ func buildSources(cfg config.Config, lg *log.Logger) map[string]source.Source {
 	us.SetProxy(cfg.Proxy)
 	us.Update(cfg)
 
+	loc := local.New(lg)
+	loc.Update(cfg)
+
 	return map[string]source.Source{
 		config.SourceWallhaven: wh,
 		config.SourceUnsplash:  us,
+		config.SourceLocal:     loc,
 	}
 }
 

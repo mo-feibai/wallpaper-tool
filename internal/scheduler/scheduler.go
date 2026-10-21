@@ -16,10 +16,12 @@ import (
 
 	"wallpaper-tool/internal/config"
 	"wallpaper-tool/internal/elevate"
+	"wallpaper-tool/internal/fullscreen"
 	"wallpaper-tool/internal/notify"
 	"wallpaper-tool/internal/paths"
 	"wallpaper-tool/internal/source"
 	"wallpaper-tool/internal/state"
+	"wallpaper-tool/internal/theme"
 	"wallpaper-tool/internal/wallpaper"
 )
 
@@ -29,14 +31,16 @@ var errNoResults = errors.New("搜索结果为空或已全部看过, 请调整�
 
 // Status 暴露给 Web/托盘的状态快照。
 type Status struct {
-	Paused        bool         `json:"paused"`
-	NextRun       time.Time    `json:"next_run"`
-	LastError     string       `json:"last_error"`
-	TaskInstalled bool         `json:"task_installed"`
-	Current       state.Item   `json:"current"`
-	LockCurrent   state.Item   `json:"lock_current"`
-	History       []state.Item `json:"history"`
-	LockHistory   []state.Item `json:"lock_history"`
+	Paused        bool      `json:"paused"`
+	NextRun       time.Time `json:"next_run"`
+	LastError     string    `json:"last_error"`
+	TaskInstalled bool      `json:"task_installed"`
+	// Fullscreen 表示当前有全屏窗口, 自动换图被跳过。
+	Fullscreen  bool         `json:"fullscreen"`
+	Current     state.Item   `json:"current"`
+	LockCurrent state.Item   `json:"lock_current"`
+	History     []state.Item `json:"history"`
+	LockHistory []state.Item `json:"lock_history"`
 }
 
 // Scheduler 调度器。
@@ -50,7 +54,6 @@ type Scheduler struct {
 	stop    chan struct{}
 	nextRun time.Time
 	lastErr string
-	seen    map[string]bool
 	started bool
 }
 
@@ -62,7 +65,6 @@ func New(cfg config.Config, st *state.Store, sources map[string]source.Source, l
 		state:   st,
 		sources: sources,
 		log:     lg,
-		seen:    map[string]bool{},
 	}
 }
 
@@ -115,10 +117,11 @@ func (s *Scheduler) UpdateConfig(cfg config.Config) error {
 
 // searchSignature 生成影响搜索结果的配置签名, 用于检测筛选条件变化。
 func searchSignature(c config.Config) string {
-	return fmt.Sprintf("%v|%v|%v|%v|%v|%s|%s|%s|%s|%s|%s|%s",
+	return fmt.Sprintf("%v|%v|%v|%v|%v|%s|%s|%s|%s|%s|%s|%s|%s",
 		c.Categories.General, c.Categories.Anime, c.Categories.People,
 		c.Purity.SFW, c.Purity.Sketchy,
-		c.Query, c.Sorting, c.Order, c.TopRange, c.AtLeast, c.Ratios, c.Orientation)
+		c.Query, c.Sorting, c.Order, c.TopRange, c.AtLeast, c.Ratios, c.Orientation,
+		c.Local.Dir)
 }
 
 // Start 启动定时循环。
@@ -144,6 +147,13 @@ func (s *Scheduler) Start() {
 			case <-ticker.C:
 				st := s.state.Get()
 				if st.Paused {
+					continue
+				}
+				// 全屏(游戏/演示/视频)时跳过自动换图, 观影不被壁纸切换打断。
+				// 手动"下一张/上一张"不受此限制。
+				cfg := s.Config()
+				if cfg.PauseWhenFullscreen != nil && *cfg.PauseWhenFullscreen && fullscreen.IsFullscreen() {
+					s.log.Printf("检测到全屏窗口, 本次自动换图已跳过")
 					continue
 				}
 				if err := s.applyNext(); err != nil {
@@ -283,6 +293,7 @@ func (s *Scheduler) Status() Status {
 		NextRun:       nextRun,
 		LastError:     lastErr,
 		TaskInstalled: st.TaskInstalled,
+		Fullscreen:    fullscreen.IsFullscreen(),
 		Current:       st.Current,
 		LockCurrent:   st.LockCurrent,
 		History:       st.History,
@@ -315,7 +326,7 @@ func (s *Scheduler) applyNext() error {
 		local, derr := s.downloadItem(item)
 		if derr != nil {
 			// 下载失败也标记已见, 避免坏地址反复阻塞后续换图
-			s.markSeen(item)
+			s.markSeen(targetDesktop, item)
 			return fmt.Errorf("下载壁纸失败: %w", derr)
 		}
 		item.Path = local
@@ -324,7 +335,8 @@ func (s *Scheduler) applyNext() error {
 		}
 		desktopItem = item
 		desktopOK = true
-		s.markSeen(item)
+		s.markSeen(targetDesktop, item)
+		s.applyTheme(item)
 		_ = s.state.Update(func(u *state.State) {
 			u.Current = item
 			u.History = append([]state.Item{item}, u.History...)
@@ -348,7 +360,7 @@ func (s *Scheduler) applyNext() error {
 			} else {
 				local, derr := s.downloadItem(item)
 				if derr != nil {
-					s.markSeen(item)
+					s.markSeen(targetLock, item)
 					s.log.Printf("锁屏壁纸下载失败, 本次锁屏沿用桌面图: %v", derr)
 					lockOK = true
 				} else {
@@ -365,7 +377,7 @@ func (s *Scheduler) applyNext() error {
 			}
 			local, derr := s.downloadItem(item)
 			if derr != nil {
-				s.markSeen(item)
+				s.markSeen(targetLock, item)
 				return fmt.Errorf("下载壁纸失败: %w", derr)
 			}
 			item.Path = local
@@ -376,7 +388,7 @@ func (s *Scheduler) applyNext() error {
 			if err := s.applyLockScreenItem(lockItem); err != nil {
 				return err
 			}
-			s.markSeen(lockItem)
+			s.markSeen(targetLock, lockItem)
 			_ = s.state.Update(func(u *state.State) {
 				u.LockCurrent = lockItem
 				u.LockScreenTarget = lockItem.Path
@@ -394,6 +406,25 @@ func (s *Scheduler) applyNext() error {
 	s.cleanupCache()
 	s.notifyRotation(desktopItem, lockItem)
 	return nil
+}
+
+// applyTheme 按配置把壁纸主色联动到 Windows 主题(强调色/深浅色模式)。
+// 失败只记日志, 不影响换图本身。
+func (s *Scheduler) applyTheme(item state.Item) {
+	if item.Path == "" {
+		return
+	}
+	if !s.cfg.Theme.AccentFromWallpaper && !s.cfg.Theme.AutoLightDark {
+		return
+	}
+	hex, err := theme.Apply(item.Path, s.cfg.Theme.AccentFromWallpaper, s.cfg.Theme.AutoLightDark)
+	if err != nil {
+		s.log.Printf("主题联动失败: %v", err)
+		return
+	}
+	if hex != "" {
+		s.log.Printf("theme synced from wallpaper: color=%s", hex)
+	}
 }
 
 // notifyRotation 换图成功后发送 Windows 通知。
@@ -467,9 +498,52 @@ func seenKeyOf(item state.Item) string {
 	return src + "/" + item.ID
 }
 
-// markSeen 标记条目已使用。
-func (s *Scheduler) markSeen(item state.Item) {
-	s.seen[seenKeyOf(item)] = true
+// seenLimit 已看集合保留的最大条数。
+// 超出后丢弃最旧的, 保证集合有界; 图源条目少于该值时会自动重置(洗牌袋)。
+const seenLimit = 200
+
+// isSeen 判断条目是否在目标的已看集合中。
+func (s *Scheduler) isSeen(target, key string) bool {
+	st := s.state.Get()
+	for _, k := range st.Seen[target] {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// markSeen 把条目记入目标的已看集合(持久化)。
+// 重启后不会立刻重复旧图, 这是"一轮内不重复"的基础。
+func (s *Scheduler) markSeen(target string, item state.Item) {
+	key := seenKeyOf(item)
+	_ = s.state.Update(func(u *state.State) {
+		if u.Seen == nil {
+			u.Seen = map[string][]string{}
+		}
+		list := u.Seen[target]
+		for _, k := range list {
+			if k == key {
+				return
+			}
+		}
+		list = append(list, key)
+		if len(list) > seenLimit {
+			list = list[len(list)-seenLimit:]
+		}
+		u.Seen[target] = list
+	})
+}
+
+// resetSeen 清空目标的已看集合。
+// 当图源条目已被看完时调用, 让下一轮重新洗牌, 而不是一直报"已全部看过"。
+func (s *Scheduler) resetSeen(target string) {
+	_ = s.state.Update(func(u *state.State) {
+		if u.Seen != nil {
+			delete(u.Seen, target)
+		}
+	})
+	s.log.Printf("已看集合已满, %s 目标重新洗牌", target)
 }
 
 // takeItem 为目标取一条壁纸: 优先用预取队列, 队列空则向该目标的数据源拉一批。
@@ -488,7 +562,7 @@ func (s *Scheduler) takeItem(target string, excludeKey string) (state.Item, erro
 			cand.Source = src.Name()
 		}
 		key := seenKeyOf(cand)
-		if s.seen[key] || key == excludeKey {
+		if s.isSeen(target, key) || key == excludeKey {
 			continue
 		}
 		cur.Queue = queue
@@ -518,6 +592,7 @@ func (s *Scheduler) takeItem(target string, excludeKey string) (state.Item, erro
 	}
 	cur.Page = newPage
 	cur.Seed = newSeed
+	seenSkipped := 0
 	for _, it := range res.Items {
 		cand := state.Item{
 			ID:      it.ID,
@@ -528,10 +603,33 @@ func (s *Scheduler) takeItem(target string, excludeKey string) (state.Item, erro
 			Title:   it.Title,
 		}
 		key := seenKeyOf(cand)
-		if s.seen[key] || key == excludeKey {
+		if s.isSeen(target, key) {
+			seenSkipped++
+			continue
+		}
+		if key == excludeKey {
 			continue
 		}
 		queue = append(queue, cand)
+	}
+	// 搜索到的图全都看过了 -> 说明这个图源已经被轮完一遍,
+	// 清空已看集合重新洗牌, 而不是一直报"已全部看过"。
+	if len(queue) == 0 && seenSkipped > 0 {
+		s.resetSeen(target)
+		for _, it := range res.Items {
+			cand := state.Item{
+				ID:      it.ID,
+				Source:  it.Source,
+				FileURL: it.FileURL,
+				PageURL: it.PageURL,
+				Author:  it.Author,
+				Title:   it.Title,
+			}
+			if seenKeyOf(cand) == excludeKey {
+				continue
+			}
+			queue = append(queue, cand)
+		}
 	}
 	cur.Queue = queue
 	if len(queue) == 0 {
