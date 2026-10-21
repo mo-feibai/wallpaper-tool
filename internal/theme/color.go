@@ -16,20 +16,32 @@ import (
 // 取主色不需要全分辨率, 64x64 已足够代表画面主调。
 const sampleSize = 64
 
-// hysteresis 迟滞带宽: 亮度落在 0.5±带宽 内时不切换深浅色。
+// lightThreshold 深浅色分界亮度。
+//
+// 判定量是 p75 分位数(见 Analysis.Brightness), 天然高于均值/中位数,
+// 所以阈值要比直觉的 0.5 低, 实测 0.4 能把"大面积亮天空 + 深色前景剪影"
+// 这类黄昏图正确判为亮色。
+const lightThreshold = 0.40
+
+// hysteresis 迟滞带宽: 亮度落在 lightThreshold±带宽 内时不切换深浅色。
 //
 // 没有迟滞时, 亮度在阈值附近来回的壁纸会让整个系统界面反复翻转, 非常刺眼。
 const hysteresis = 0.08
+
+// brightnessPercentile 亮度判定所用的分位数(0~1)。
+const brightnessPercentile = 0.75
 
 // Analysis 是壁纸的颜色分析结果。
 type Analysis struct {
 	// Dominant 主色(出现最多的颜色桶的均值)。
 	Dominant color.RGBA
-	// Brightness 整图亮度中位数(0~1), 用于判断深/浅色模式。
+	// Brightness 整图亮度的 p75 分位数(0~1), 用于判断深/浅色模式。
 	//
-	// 用中位数而不是均值: 均值容易被局部高光拉高
-	// (夜景里一块很亮的天空就能把均值抬到中灰以上),
-	// 中位数更接近"这张图整体暗不暗"的直觉。
+	// 用 p75 而不是均值/中位数:
+	//   - 均值会被局部高光拉高(夜景里一块很亮的天空就能把均值抬到中灰以上)
+	//   - 中位数会忽略大面积亮区(黄昏图: 上半深蓝夜空, 中间一条落日亮带,
+	//     中位数落在暗区, 与"这张图看起来是亮的"直觉相反)
+	// p75 既不被少量高光干扰, 又能反映占四分之一以上的亮区。
 	Brightness float64
 }
 
@@ -88,11 +100,7 @@ func Analyze(path string) (Analysis, error) {
 	}
 
 	sort.Float64s(lums)
-	mid := len(lums) / 2
-	brightness := lums[mid]
-	if len(lums)%2 == 0 {
-		brightness = (lums[mid-1] + lums[mid]) / 2
-	}
+	brightness := lums[int(brightnessPercentile*float64(len(lums)-1))]
 
 	return Analysis{Dominant: dom, Brightness: brightness}, nil
 }
@@ -119,23 +127,23 @@ func pixelLuminance(r, g, b int) float64 {
 
 // LightDarkDecision 纯函数: 根据整图亮度与当前模式, 决定是否切换深/浅色。
 //
-// brightness 整图亮度中位数(0~1)
+// brightness 整图亮度 p75 分位数(0~1)
 // current  当前模式(1=浅色, 0=深色)
 // 返回目标模式与是否真的需要切换。
 //
 // 规则:
-//  1. 目标模式 = 亮度 >= 0.5 ? 浅 : 深
+//  1. 目标模式 = 亮度 >= lightThreshold ? 浅 : 深
 //  2. 目标与当前一致 -> 不切换
-//  3. 亮度落在 0.5±迟滞带内 -> 保持当前模式, 避免界面反复翻转
+//  3. 亮度落在阈值±迟滞带内 -> 保持当前模式, 避免界面反复翻转
 func LightDarkDecision(brightness float64, current int) (target int, changed bool) {
 	target = 0
-	if brightness >= 0.5 {
+	if brightness >= lightThreshold {
 		target = 1
 	}
 	if target == current {
 		return current, false
 	}
-	if d := brightness - 0.5; d <= hysteresis && d >= -hysteresis {
+	if d := brightness - lightThreshold; d <= hysteresis && d >= -hysteresis {
 		return current, false
 	}
 	return target, true

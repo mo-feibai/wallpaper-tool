@@ -45,7 +45,9 @@ type Status struct {
 
 // Scheduler 调度器。
 type Scheduler struct {
-	mu      sync.Mutex
+	mu sync.Mutex
+	// themeMu 串行化主题相关操作(取色写入与恢复), 避免开关快速切换时互相覆盖
+	themeMu sync.Mutex
 	cfg     config.Config
 	state   *state.Store
 	sources map[string]source.Source // 按数据源名索引
@@ -119,31 +121,46 @@ func (s *Scheduler) UpdateConfig(cfg config.Config) error {
 	// 开启 -> 按当前壁纸取色; 关闭 -> 撤销此前写入的设置。
 	if oldAccent != cfg.Theme.AccentFromWallpaper {
 		if cfg.Theme.AccentFromWallpaper {
-			s.applyThemeToCurrent(cfg.Theme.AccentFromWallpaper, cfg.Theme.AutoLightDark)
+			s.applyThemeToCurrent()
 		} else {
-			s.restoreTheme("主题联动已关闭, 已恢复系统默认配色", theme.RestoreAccent)
+			s.restoreTheme("主题联动已关闭, 已恢复系统默认配色", theme.RestoreAccent, !cfg.Theme.AccentFromWallpaper)
 		}
 	}
 	if oldLightDark != cfg.Theme.AutoLightDark {
 		if cfg.Theme.AutoLightDark {
-			s.applyThemeToCurrent(cfg.Theme.AccentFromWallpaper, cfg.Theme.AutoLightDark)
+			s.applyThemeToCurrent()
 		} else {
-			s.restoreTheme("深浅色联动已关闭, 应用主题已恢复为系统界面设置", theme.RestoreLightDark)
+			s.restoreTheme("深浅色联动已关闭, 应用主题已恢复为系统界面设置", theme.RestoreLightDark, !cfg.Theme.AutoLightDark)
 		}
 	}
 	return nil
 }
 
+// themeConfig 返回当前生效的主题开关状态。
+func (s *Scheduler) themeConfig() (accent, lightDark bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.Theme.AccentFromWallpaper, s.cfg.Theme.AutoLightDark
+}
+
 // restoreTheme 在后台执行恢复动作。
 //
 // 恢复要广播系统消息(单次最多阻塞数秒), 放后台避免拖慢配置保存的响应。
-func (s *Scheduler) restoreTheme(msg string, fn func() error) {
+// stillOff 用于在真正动手前复核开关状态: 用户如果在这期间又打开了开关,
+// 就不应该再执行恢复, 否则会覆盖掉刚打开的效果。
+func (s *Scheduler) restoreTheme(msg string, fn func() error, stillOff bool) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				s.log.Printf("恢复主题 panic: %v", r)
 			}
 		}()
+		// 主题操作串行化, 避免"关闭"与"开启"两个异步动作互相覆盖
+		s.themeMu.Lock()
+		defer s.themeMu.Unlock()
+		if !stillOff {
+			return
+		}
 		if err := fn(); err != nil {
 			s.log.Printf("%s失败: %v", msg, err)
 			return
@@ -155,7 +172,8 @@ func (s *Scheduler) restoreTheme(msg string, fn func() error) {
 // applyThemeToCurrent 按当前桌面壁纸应用主题联动(开关刚打开时用)。
 //
 // 放在后台执行: 取色需要解码整张原图(约数百毫秒), 不能拖慢配置保存的响应。
-func (s *Scheduler) applyThemeToCurrent(accent, lightDark bool) {
+// 开关状态在真正执行前重新读取, 避免用户已经关掉开关后仍然写入主题。
+func (s *Scheduler) applyThemeToCurrent() {
 	st := s.state.Get()
 	if st.Current.Path == "" {
 		return
@@ -166,6 +184,13 @@ func (s *Scheduler) applyThemeToCurrent(accent, lightDark bool) {
 				s.log.Printf("主题联动 panic: %v", r)
 			}
 		}()
+		// 主题操作串行化, 避免与"关闭"动作互相覆盖
+		s.themeMu.Lock()
+		defer s.themeMu.Unlock()
+		accent, lightDark := s.themeConfig()
+		if !accent && !lightDark {
+			return
+		}
 		res, err := theme.Apply(st.Current.Path, accent, lightDark)
 		if err != nil {
 			s.log.Printf("主题联动失败: %v", err)

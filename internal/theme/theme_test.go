@@ -66,7 +66,7 @@ func TestLightDarkEndToEnd(t *testing.T) {
 		{"亮图, 当前浅色", 220, 1, 1, false},
 		{"亮图, 当前深色", 220, 0, 1, true},
 		{"过渡区灰度, 当前深色", 117, 0, 0, false}, // 亮度≈0.459, 落在迟滞带内
-		{"过渡区灰度, 当前浅色", 140, 1, 1, false}, // 亮度≈0.549, 落在迟滞带内
+		{"过渡区灰度, 当前浅色", 120, 1, 1, false}, // 亮度≈0.471, 落在迟滞带内
 	}
 	for _, c := range cases {
 		path := fmt.Sprintf("%s/%s.png", dir, c.name)
@@ -86,23 +86,37 @@ func TestLightDarkEndToEnd(t *testing.T) {
 	}
 }
 
-// TestAnalyzeBrightnessUsesMedian 验证整图亮度用中位数:
-// 暗底 + 少量亮块的图, 亮度应仍判定为暗(均值会被亮块拉高)。
-func TestAnalyzeBrightnessUsesMedian(t *testing.T) {
+// TestAnalyzeBrightnessUsesPercentile 验证亮度用 p75 分位数:
+// 暗底 + 小面积亮块(约16%)时仍判暗; 亮区占一半时判亮。
+func TestAnalyzeBrightnessUsesPercentile(t *testing.T) {
 	dir := t.TempDir()
-	path := dir + "/dark-with-spot.png"
-	img := imaging.New(200, 200, color.NRGBA{R: 20, G: 20, B: 25, A: 255})
-	// 右上角放一块很亮的区域(占全图 1/16)
-	img = imaging.Paste(img, imaging.New(100, 100, color.NRGBA{R: 255, G: 255, B: 255, A: 255}), image.Pt(100, 0))
-	if err := imaging.Save(img, path); err != nil {
+
+	small := imaging.New(200, 200, color.NRGBA{R: 20, G: 20, B: 25, A: 255})
+	small = imaging.Paste(small, imaging.New(80, 80, color.NRGBA{R: 255, G: 255, B: 255, A: 255}), image.Pt(0, 0))
+	p1 := dir + "/dark-small-spot.png"
+	if err := imaging.Save(small, p1); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	a, err := Analyze(path)
+	a1, err := Analyze(p1)
 	if err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
-	if a.Brightness > 0.2 {
-		t.Errorf("整图亮度 = %.3f, 期望接近 0(中位数不受局部亮块影响)", a.Brightness)
+	if a1.Brightness > 0.2 {
+		t.Errorf("小面积亮块时亮度 = %.3f, 期望接近 0(p75 不受 16%% 亮块影响)", a1.Brightness)
+	}
+
+	half := imaging.New(200, 200, color.NRGBA{R: 20, G: 20, B: 25, A: 255})
+	half = imaging.Paste(half, imaging.New(200, 100, color.NRGBA{R: 255, G: 255, B: 255, A: 255}), image.Pt(0, 0))
+	p2 := dir + "/half-bright.png"
+	if err := imaging.Save(half, p2); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	a2, err := Analyze(p2)
+	if err != nil {
+		t.Fatalf("analyze: %v", err)
+	}
+	if a2.Brightness < 0.8 {
+		t.Errorf("半幅亮区时亮度 = %.3f, 期望接近 1", a2.Brightness)
 	}
 }
 
@@ -119,10 +133,10 @@ func TestLightDarkDecision(t *testing.T) {
 		{"明显亮图, 当前深色", 0.8, 0, 1, true},
 		{"明显暗图, 当前浅色", 0.2, 1, 0, true},
 		{"明显暗图, 当前深色", 0.2, 0, 0, false},
-		{"过渡区, 保持当前浅色", 0.54, 1, 1, false},
-		{"过渡区, 保持当前深色", 0.46, 0, 0, false},
-		{"刚好越过迟滞带下沿", 0.41, 1, 0, true},
-		{"刚好越过迟滞带上沿", 0.59, 0, 1, true},
+		{"过渡区, 保持当前浅色", 0.44, 1, 1, false},
+		{"过渡区, 保持当前深色", 0.36, 0, 0, false},
+		{"刚好越过迟滞带下沿", 0.30, 1, 0, true},
+		{"刚好越过迟滞带上沿", 0.50, 0, 1, true},
 	}
 	for _, c := range cases {
 		mode, changed := LightDarkDecision(c.brightness, c.current)
