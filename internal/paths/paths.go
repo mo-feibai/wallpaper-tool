@@ -33,6 +33,11 @@ func LogFile() string { return filepath.Join(BaseDir(), "log.txt") }
 // CacheDir 返回默认壁纸缓存目录 %APPDATA%\wallpaper-tool\cache。
 func CacheDir() string { return filepath.Join(BaseDir(), "cache") }
 
+// WebImageDir 返回配置页派生图片目录 %APPDATA%\wallpaper-tool\web-images。
+// 该目录只存放网页展示用的缩略图与预览图, 与壁纸缓存相互独立:
+// 不计入壁纸张数/天数限制, 也不参与缓存目录迁移。
+func WebImageDir() string { return filepath.Join(BaseDir(), "web-images") }
+
 // ResolveCacheDir 解析实际使用的缓存目录。
 // custom 为空时返回默认目录; 否则原样返回(已由 config.Sanitize 规范化)。
 func ResolveCacheDir(custom string) string {
