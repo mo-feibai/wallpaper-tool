@@ -54,10 +54,19 @@ sources:
 local:
   dir: ""
 
-# 主题联动: 按壁纸主色联动 Windows 主题
+# 主题联动: 让系统从壁纸自动提取强调色
 theme:
-  accent_from_wallpaper: false  # 用壁纸主色设置系统强调色
-  auto_light_dark: false        # 按壁纸明暗自动切换系统深/浅色模式
+  accent_from_wallpaper: false  # 开启系统原生的"从背景自动选取主题色"
+  # 深浅色模式自动切换
+  dark_mode:
+    mode: "off"            # off=关闭 | fixed=固定时段 | sun=日出日落
+    day_start: "08:00"     # fixed: 白天开始(浅色)
+    night_start: "19:00"   # fixed: 夜晚开始(深色)
+    latitude: 39.9042      # sun: 纬度(北正南负)
+    longitude: 116.4074    # sun: 经度(东正西负)
+    dawn_offset: 30        # sun: 日出后延后多少分钟切回浅色
+    dusk_offset: 30        # sun: 日落前提前多少分钟切到深色
+    system_ui: true        # 是否同时切换系统界面主题(任务栏/开始菜单)
 
 # Unsplash Access Key, 仅在选择 unsplash 数据源时需要
 # 获取方式: https://unsplash.com/developers 注册应用后可见

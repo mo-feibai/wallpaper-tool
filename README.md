@@ -21,7 +21,8 @@ Windows 桌面壁纸自动更换工具。从 [Wallhaven](https://wallhaven.cc) �
 - **高清大图**：双击当前壁纸、锁屏壁纸或任一历史缩略图，即可全屏查看原图分辨率大图（Esc 或点击空白关闭）
 - **版本与更新提示**：页脚显示当前版本；比对 GitHub 仓库的 tag，发现新版本时顶部提示并可跳转下载
 - **全屏避让**：游戏 / 视频 / 演示全屏时自动跳过换图，不打断观影（手动换图不受影响）
-- **主题联动**：开启 Windows 原生的"从背景自动选取主题色"，系统强调色随壁纸实时变化；可按壁纸 **75% 分位亮度**自动切换**应用**的深/浅色模式（系统界面主题不动，带迟滞避免反复翻转）
+- **主题联动**：开启 Windows 原生的"从背景自动选取主题色"，系统强调色随壁纸实时变化
+- **深浅色模式**：按固定时段或当地日出日落自动切换系统深/浅色（含日出日落/日落偏移），关闭时自动恢复你原本的设置
 - **开机自启**：写入 `HKCU\...\Run`，无需管理员权限
 - **健壮性**：单实例保护；配置版本号防止长期未刷新的旧页面覆盖新配置
 
@@ -88,7 +89,11 @@ go build -trimpath -ldflags "-s -w -H=windowsgui -X wallpaper-tool/internal/vers
 | `sources.desktop` / `lock_screen` | 各目标的数据源：`wallhaven` / `unsplash` / `local` | `wallhaven` |
 | `local.dir` | 本地目录数据源的图片目录，留空则该源不可用 | 空 |
 | `theme.accent_from_wallpaper` | 开启系统原生的"从背景自动选取主题色"（强调色随壁纸变化） | `false` |
-| `theme.auto_light_dark` | 按壁纸 75% 分位亮度自动切换应用的深/浅色模式（不改系统界面主题） | `false` |
+| `theme.dark_mode.mode` | 深浅色自动切换：`off` / `fixed`（固定时段）/ `sun`（日出日落） | `off` |
+| `theme.dark_mode.day_start` / `night_start` | 固定时段的白天/夜晚起止（`HH:MM`） | `08:00` / `19:00` |
+| `theme.dark_mode.latitude` / `longitude` | 日出日落模式用的经纬度 | `0` / `0` |
+| `theme.dark_mode.dawn_offset` / `dusk_offset` | 日出后延后 / 日落前提前多少分钟切换（分钟） | `0` / `0` |
+| `theme.dark_mode.system_ui` | 是否同时切换系统界面主题（任务栏/开始菜单） | `false` |
 | `unsplash_key` | Unsplash Access Key，仅 Unsplash 源需要；不回显、不入日志 | 空 |
 | `desktop_fit` | 桌面适配：`fill` / `fit` / `stretch` / `center` / `tile` / `span` | `fill` |
 | `autostart` | 开机自启（HKCU Run，无需管理员） | `false` |
@@ -174,7 +179,8 @@ main.go ──┬─ tray       系统托盘菜单
     ├── source/                 数据源统一接口与公共下载逻辑
     │   └── local/              本地目录数据源
     ├── state/                  运行状态持久化
-    ├── theme/                  壁纸取色与 Windows 主题联动
+    ├── suncalc/                日出日落计算(Meeus 日出方程)
+    ├── theme/                  Windows 原生"从背景自动取色"与深浅色模式联动
     ├── tray/                   系统托盘
     ├── unsplash/               Unsplash API 客户端
     ├── update/                 GitHub tag 版本检查
