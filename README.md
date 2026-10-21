@@ -21,7 +21,7 @@ Windows 桌面壁纸自动更换工具。从 [Wallhaven](https://wallhaven.cc) �
 - **高清大图**：双击当前壁纸、锁屏壁纸或任一历史缩略图，即可全屏查看原图分辨率大图（Esc 或点击空白关闭）
 - **版本与更新提示**：页脚显示当前版本；比对 GitHub 仓库的 tag，发现新版本时顶部提示并可跳转下载
 - **全屏避让**：游戏 / 视频 / 演示全屏时自动跳过换图，不打断观影（手动换图不受影响）
-- **主题联动**：开启 Windows 原生的"从背景自动选取主题色"，系统强调色随壁纸实时变化；可按壁纸明暗自动切换系统深/浅色模式
+- **主题联动**：开启 Windows 原生的"从背景自动选取主题色"，系统强调色随壁纸实时变化；可按壁纸整图亮度自动切换**应用**的深/浅色模式（系统界面主题不动，带迟滞避免反复翻转）
 - **开机自启**：写入 `HKCU\...\Run`，无需管理员权限
 - **健壮性**：单实例保护；配置版本号防止长期未刷新的旧页面覆盖新配置
 
@@ -88,7 +88,7 @@ go build -trimpath -ldflags "-s -w -H=windowsgui -X wallpaper-tool/internal/vers
 | `sources.desktop` / `lock_screen` | 各目标的数据源：`wallhaven` / `unsplash` / `local` | `wallhaven` |
 | `local.dir` | 本地目录数据源的图片目录，留空则该源不可用 | 空 |
 | `theme.accent_from_wallpaper` | 开启系统原生的"从背景自动选取主题色"（强调色随壁纸变化） | `false` |
-| `theme.auto_light_dark` | 按壁纸明暗自动切换系统深/浅色模式 | `false` |
+| `theme.auto_light_dark` | 按壁纸整图亮度自动切换应用的深/浅色模式（不改系统界面主题） | `false` |
 | `unsplash_key` | Unsplash Access Key，仅 Unsplash 源需要；不回显、不入日志 | 空 |
 | `desktop_fit` | 桌面适配：`fill` / `fit` / `stretch` / `center` / `tile` / `span` | `fill` |
 | `autostart` | 开机自启（HKCU Run，无需管理员） | `false` |

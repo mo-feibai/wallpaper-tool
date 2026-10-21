@@ -116,30 +116,40 @@ func (s *Scheduler) UpdateConfig(cfg config.Config) error {
 	}
 
 	// 主题联动开关变化时立即生效, 不必等下一次换图:
-	// 开启 -> 按当前壁纸取色; 关闭 -> 撤销此前写入的强调色, 恢复系统默认配色。
+	// 开启 -> 按当前壁纸取色; 关闭 -> 撤销此前写入的设置。
 	if oldAccent != cfg.Theme.AccentFromWallpaper {
 		if cfg.Theme.AccentFromWallpaper {
 			s.applyThemeToCurrent(cfg.Theme.AccentFromWallpaper, cfg.Theme.AutoLightDark)
 		} else {
-			// 恢复默认配色要广播系统消息(最多阻塞数秒), 放后台执行避免拖慢保存响应
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						s.log.Printf("恢复默认配色 panic: %v", r)
-					}
-				}()
-				if err := theme.Restore(); err != nil {
-					s.log.Printf("恢复系统默认配色失败: %v", err)
-				} else {
-					s.log.Printf("主题联动已关闭, 已恢复系统默认配色")
-				}
-			}()
+			s.restoreTheme("主题联动已关闭, 已恢复系统默认配色", theme.RestoreAccent)
 		}
 	}
-	if !oldLightDark && cfg.Theme.AutoLightDark {
-		s.applyThemeToCurrent(cfg.Theme.AccentFromWallpaper, cfg.Theme.AutoLightDark)
+	if oldLightDark != cfg.Theme.AutoLightDark {
+		if cfg.Theme.AutoLightDark {
+			s.applyThemeToCurrent(cfg.Theme.AccentFromWallpaper, cfg.Theme.AutoLightDark)
+		} else {
+			s.restoreTheme("深浅色联动已关闭, 应用主题已恢复为系统界面设置", theme.RestoreLightDark)
+		}
 	}
 	return nil
+}
+
+// restoreTheme 在后台执行恢复动作。
+//
+// 恢复要广播系统消息(单次最多阻塞数秒), 放后台避免拖慢配置保存的响应。
+func (s *Scheduler) restoreTheme(msg string, fn func() error) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Printf("恢复主题 panic: %v", r)
+			}
+		}()
+		if err := fn(); err != nil {
+			s.log.Printf("%s失败: %v", msg, err)
+			return
+		}
+		s.log.Printf("%s", msg)
+	}()
 }
 
 // applyThemeToCurrent 按当前桌面壁纸应用主题联动(开关刚打开时用)。
@@ -156,14 +166,12 @@ func (s *Scheduler) applyThemeToCurrent(accent, lightDark bool) {
 				s.log.Printf("主题联动 panic: %v", r)
 			}
 		}()
-		hex, err := theme.Apply(st.Current.Path, accent, lightDark)
+		res, err := theme.Apply(st.Current.Path, accent, lightDark)
 		if err != nil {
 			s.log.Printf("主题联动失败: %v", err)
 			return
 		}
-		if hex != "" {
-			s.log.Printf("theme synced from wallpaper: color=%s", hex)
-		}
+		s.logThemeResult(res, lightDark)
 	}()
 }
 
@@ -460,7 +468,7 @@ func (s *Scheduler) applyNext() error {
 	return nil
 }
 
-// applyTheme 按配置把壁纸主色联动到 Windows 主题(强调色/深浅色模式)。
+// applyTheme 按配置把壁纸联动到 Windows 主题(强调色/深浅色模式)。
 // 失败只记日志, 不影响换图本身。
 func (s *Scheduler) applyTheme(item state.Item) {
 	if item.Path == "" {
@@ -469,13 +477,25 @@ func (s *Scheduler) applyTheme(item state.Item) {
 	if !s.cfg.Theme.AccentFromWallpaper && !s.cfg.Theme.AutoLightDark {
 		return
 	}
-	hex, err := theme.Apply(item.Path, s.cfg.Theme.AccentFromWallpaper, s.cfg.Theme.AutoLightDark)
+	res, err := theme.Apply(item.Path, s.cfg.Theme.AccentFromWallpaper, s.cfg.Theme.AutoLightDark)
 	if err != nil {
 		s.log.Printf("主题联动失败: %v", err)
 		return
 	}
-	if hex != "" {
-		s.log.Printf("theme synced from wallpaper: color=%s", hex)
+	s.logThemeResult(res, s.cfg.Theme.AutoLightDark)
+}
+
+// logThemeResult 记录一次主题联动的结果。
+func (s *Scheduler) logThemeResult(res theme.Result, lightDark bool) {
+	if res.Color != "" {
+		s.log.Printf("theme synced from wallpaper: color=%s brightness=%.3f", res.Color, res.Brightness)
+	}
+	if lightDark {
+		if res.Changed {
+			s.log.Printf("深浅色模式已切换为%s", res.ModeName())
+		} else {
+			s.log.Printf("深浅色模式保持%s(亮度处于过渡区或与当前一致)", res.ModeName())
+		}
 	}
 }
 
