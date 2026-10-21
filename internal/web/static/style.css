@@ -625,7 +625,6 @@ select option {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  right: 0;
   z-index: 30;
   display: none;
   padding: 6px;
@@ -634,6 +633,29 @@ select option {
   /* 不透明度足够高: 菜单展开时不能透出下方卡片的文字(视觉穿透) */
   background: rgba(14, 17, 26, 0.97);
   box-shadow: var(--shadow-float), inset 0 1px 0 var(--edge-top);
+  /* 宽度随最长的选项自适应, 但不小于按钮宽度, 也不超过视口 */
+  width: max-content;
+  min-width: 100%;
+  max-width: min(360px, 86vw);
+  /* 选项多时菜单内部滚动, 不再带着页面一起滚 */
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.sel-menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sel-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+}
+
+.sel-menu::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* 菜单展开时把整张卡片抬到其他卡片之上。
@@ -653,6 +675,8 @@ select option {
   color: var(--ink-dim);
   border-radius: 9px;
   cursor: pointer;
+  /* 选项文字不换行(否则窄菜单里会断成两行) */
+  white-space: nowrap;
 }
 
 .sel-opt.is-active {

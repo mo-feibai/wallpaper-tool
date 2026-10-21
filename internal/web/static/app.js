@@ -1042,8 +1042,12 @@ $("btn-geo").addEventListener("click", async (e) => {
     const r = await api("/api/theme/geo");
     $("f-dark-lat").value = Number(r.latitude).toFixed(4);
     $("f-dark-lon").value = Number(r.longitude).toFixed(4);
+    const where = [r.region, r.city].filter(Boolean).join(" ");
     showMsg(
-      "已检测到" + (r.city || "当前位置") + " 的坐标, 点击保存设置生效",
+      "已检测到" +
+        (where || "当前位置") +
+        (r.ip ? " (出口 IP " + r.ip + ")" : "") +
+        " 的坐标, 点击保存设置生效",
       false
     );
   } catch (err) {
