@@ -86,12 +86,14 @@
           <select id="f-src-desktop">
             <option value="wallhaven">wallhaven</option>
             <option value="unsplash">unsplash</option>
+            <option value="local">本地目录 local</option>
           </select>
         </label>
         <label>锁屏数据源
           <select id="f-src-lock">
             <option value="wallhaven">wallhaven</option>
             <option value="unsplash">unsplash</option>
+            <option value="local">本地目录 local</option>
           </select>
         </label>
       </div>
@@ -179,6 +181,17 @@
       <p class="hint">在 unsplash.com/developers 注册应用后获取; 一次请求可预取 30 张随机图, 官方要求显示摄影师署名(已自动带上)。</p>
     </section>
 
+    <!-- 本地目录专属设置: 仅当有目标选用 local 时显示 -->
+    <section class="card src-card" id="card-local">
+      <h2>本地目录设置</h2>
+      <div class="grid grid-1">
+        <label>图片目录
+          <input type="text" id="f-local-dir" placeholder="例 D:\Pictures\Wallpapers, 留空不可用" spellcheck="false">
+        </label>
+      </div>
+      <p class="hint">从你自己的图片文件夹取图, 无需 API Key、不依赖网络; 支持 jpg/png/webp/bmp, 会按最小分辨率与方向筛选。</p>
+    </section>
+
     <!-- 通用设置 -->
     <section class="card">
       <h2>通用设置</h2>
@@ -220,6 +233,14 @@
         <span class="group">系统</span>
         <div>
           <label><input type="checkbox" id="f-autostart">开机自启</label>
+          <label title="游戏/视频/演示全屏时跳过自动换图, 手动换图不受影响"><input type="checkbox" id="f-pause-fullscreen">全屏时暂停自动换图</label>
+        </div>
+      </div>
+      <div class="checks">
+        <span class="group">主题联动</span>
+        <div>
+          <label title="按壁纸主色设置 Windows 强调色"><input type="checkbox" id="f-accent">按壁纸取色设置强调色</label>
+          <label title="按壁纸明暗自动切换系统深/浅色模式"><input type="checkbox" id="f-lightdark">按壁纸明暗切换深浅色</label>
         </div>
       </div>
       <div class="btn-row">

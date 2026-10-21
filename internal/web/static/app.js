@@ -109,6 +109,10 @@ function fillForm(c) {
   $("f-target-desktop").checked = c.targets.desktop;
   $("f-target-lockscreen").checked = c.targets.lock_screen;
   $("f-autostart").checked = c.autostart;
+  $("f-local-dir").value = (c.local && c.local.dir) || "";
+  $("f-pause-fullscreen").checked = c.pause_when_fullscreen !== false;
+  $("f-accent").checked = !!(c.theme && c.theme.accent_from_wallpaper);
+  $("f-lightdark").checked = !!(c.theme && c.theme.auto_light_dark);
   updateTopRangeVisible();
 }
 
@@ -145,6 +149,12 @@ function collectForm() {
     },
     desktop_fit: $("f-fit").value,
     autostart: $("f-autostart").checked,
+    pause_when_fullscreen: $("f-pause-fullscreen").checked,
+    local: { dir: $("f-local-dir").value.trim() },
+    theme: {
+      accent_from_wallpaper: $("f-accent").checked,
+      auto_light_dark: $("f-lightdark").checked,
+    },
     cache: {
       dir: $("f-cachedir").value.trim(),
       max_items: parseInt($("f-maxitems").value, 10) || 20,
@@ -192,6 +202,7 @@ function updateSourceVisibility() {
   const l = $("f-src-lock").value;
   $("card-wallhaven").hidden = d !== "wallhaven" && l !== "wallhaven";
   $("card-unsplash").hidden = d !== "unsplash" && l !== "unsplash";
+  $("card-local").hidden = d !== "local" && l !== "local";
 }
 
 // 读取版本信息, 有新版时显示更新提示条。
@@ -367,7 +378,11 @@ async function applyStatus(st) {
     $("info-lock").style.display = "none";
     lastLockKey = null;
   }
-  $("st-paused").textContent = st.paused ? "已暂停" : "运行中";
+  $("st-paused").textContent = st.paused
+    ? "已暂停"
+    : st.fullscreen
+    ? "运行中(全屏避让)"
+    : "运行中";
   $("st-task").textContent = st.task_installed ? "已安装" : "未安装";
   nextRunAt = st.next_run ? new Date(st.next_run) : null;
   lastError = st.last_error || "";
@@ -950,6 +965,7 @@ $("cfg-form").addEventListener("submit", saveConfig);
 $("f-sorting").addEventListener("change", updateTopRangeVisible);
 $("f-orientation").addEventListener("change", updateRatioControls);
 $("f-src-desktop").addEventListener("change", updateSourceVisibility);
+$("f-src-lock").addEventListener("change", updateSourceVisibility);
 $("f-src-lock").addEventListener("change", updateSourceVisibility);
 $("btn-clear-key").addEventListener("click", () => {
   if (!confirm("确定清除已保存的 Unsplash Access Key 吗?")) return;
