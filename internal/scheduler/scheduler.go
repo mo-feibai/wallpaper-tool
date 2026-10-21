@@ -84,6 +84,8 @@ func (s *Scheduler) UpdateConfig(cfg config.Config) error {
 	newSig := searchSignature(cfg)
 	oldDesktopSrc := s.cfg.Sources.Desktop
 	oldLockSrc := s.cfg.Sources.LockScreen
+	oldAccent := s.cfg.Theme.AccentFromWallpaper
+	oldLightDark := s.cfg.Theme.AutoLightDark
 	if err := config.Save(paths.ConfigFile(), cfg); err != nil {
 		return fmt.Errorf("保存配置失败: %w", err)
 	}
@@ -112,7 +114,57 @@ func (s *Scheduler) UpdateConfig(cfg config.Config) error {
 		})
 		s.log.Printf("search filters or source changed, prefetch queue cleared")
 	}
+
+	// 主题联动开关变化时立即生效, 不必等下一次换图:
+	// 开启 -> 按当前壁纸取色; 关闭 -> 撤销此前写入的强调色, 恢复系统默认配色。
+	if oldAccent != cfg.Theme.AccentFromWallpaper {
+		if cfg.Theme.AccentFromWallpaper {
+			s.applyThemeToCurrent(cfg.Theme.AccentFromWallpaper, cfg.Theme.AutoLightDark)
+		} else {
+			// 恢复默认配色要广播系统消息(最多阻塞数秒), 放后台执行避免拖慢保存响应
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						s.log.Printf("恢复默认配色 panic: %v", r)
+					}
+				}()
+				if err := theme.Restore(); err != nil {
+					s.log.Printf("恢复系统默认配色失败: %v", err)
+				} else {
+					s.log.Printf("主题联动已关闭, 已恢复系统默认配色")
+				}
+			}()
+		}
+	}
+	if !oldLightDark && cfg.Theme.AutoLightDark {
+		s.applyThemeToCurrent(cfg.Theme.AccentFromWallpaper, cfg.Theme.AutoLightDark)
+	}
 	return nil
+}
+
+// applyThemeToCurrent 按当前桌面壁纸应用主题联动(开关刚打开时用)。
+//
+// 放在后台执行: 取色需要解码整张原图(约数百毫秒), 不能拖慢配置保存的响应。
+func (s *Scheduler) applyThemeToCurrent(accent, lightDark bool) {
+	st := s.state.Get()
+	if st.Current.Path == "" {
+		return
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Printf("主题联动 panic: %v", r)
+			}
+		}()
+		hex, err := theme.Apply(st.Current.Path, accent, lightDark)
+		if err != nil {
+			s.log.Printf("主题联动失败: %v", err)
+			return
+		}
+		if hex != "" {
+			s.log.Printf("theme synced from wallpaper: color=%s", hex)
+		}
+	}()
 }
 
 // searchSignature 生成影响搜索结果的配置签名, 用于检测筛选条件变化。

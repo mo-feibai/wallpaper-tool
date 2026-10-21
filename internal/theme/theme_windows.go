@@ -4,7 +4,6 @@ package theme
 
 import (
 	"fmt"
-	"image/color"
 	"syscall"
 	"unsafe"
 
@@ -20,16 +19,19 @@ var (
 const (
 	hwmBroadcast    = 0xffff
 	wmSettingChange = 0x001A
-	smtoAbortIfHung = 0x0002
-	personalizeKey  = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
-	themesKey       = `Software\Microsoft\Windows\CurrentVersion\Themes`
+	smtoAbortIfHun  = 0x0002
+	// historyKey 下的 AutoColor 是 Windows 原生"从背景自动选取主题色"的开关。
+	historyKey     = `Software\Microsoft\Windows\CurrentVersion\Themes\History`
+	personalizeKey = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
 )
 
-// Apply 按壁纸主色设置 Windows 强调色, 并可选地按明暗切换系统深/浅色模式。
+// Apply 按壁纸联动 Windows 主题。
 //
-// accent 为 true 时写入 AccentColor;
-// lightDark 为 true 时按壁纸亮度设置 AppsUseLightTheme / SystemUsesLightTheme。
-// 返回实际使用的主色, 便于调用方记录日志。
+// accent 为 true 时开启 Windows 原生的"从背景自动选取主题色"
+// (Themes\History\AutoColor=1), 由系统自己从壁纸提取强调色,
+// 比自己算主色更准, 且换图时系统会实时跟随。
+// lightDark 为 true 时按壁纸亮度设置系统深/浅色模式。
+// 返回实际使用的主色(仅用于日志), 便于调用方排查。
 func Apply(path string, accent, lightDark bool) (string, error) {
 	if !accent && !lightDark {
 		return "", nil
@@ -41,7 +43,7 @@ func Apply(path string, accent, lightDark bool) (string, error) {
 	hex := fmt.Sprintf("#%02X%02X%02X", rgb.R, rgb.G, rgb.B)
 
 	if accent {
-		if err := writeAccent(rgb); err != nil {
+		if err := setAutoColor(true); err != nil {
 			return hex, err
 		}
 	}
@@ -58,31 +60,30 @@ func Apply(path string, accent, lightDark bool) (string, error) {
 	return hex, nil
 }
 
-// writeAccent 写入强调色并通知系统刷新。
-func writeAccent(rgb color.RGBA) error {
-	abgr := ABGR(rgb)
-	key, err := registry.OpenKey(registry.CURRENT_USER, personalizeKey, registry.SET_VALUE)
+// setAutoColor 开关 Windows 原生的"从背景自动选取主题色"。
+//
+// 实测结论(Win10 19045): 只写 Personalize\AccentColor 不会让外壳生效,
+// 外壳认的是 Themes\History\AutoColor, 由系统自己从壁纸提取强调色。
+func setAutoColor(on bool) error {
+	key, err := registry.OpenKey(registry.CURRENT_USER, historyKey, registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("打开主题注册表失败: %w", err)
+		return fmt.Errorf("打开主题历史键失败: %w", err)
 	}
 	defer key.Close()
-	if err := key.SetDWordValue("AccentColor", abgr); err != nil {
+	var v uint32
+	if on {
+		v = 1
+	}
+	if err := key.SetDWordValue("AutoColor", v); err != nil {
 		return err
 	}
-	// AccentColorId 置 0, 表示使用上面写入的自定义强调色
-	if err := key.SetDWordValue("AccentColorId", 0); err != nil {
-		return err
-	}
-	// ColorizationColor 位于 Themes 键下, 一起写更稳妥
-	if tkey, err := registry.OpenKey(registry.CURRENT_USER, themesKey, registry.SET_VALUE); err == nil {
-		_ = tkey.SetDWordValue("ColorizationColor", abgr)
-		_ = tkey.Close()
-	}
+	// 通知外壳重新取色
 	broadcast("ImmersiveColorSet")
+	broadcast("WindowsThemeElement")
 	return nil
 }
 
-// writeLightDark 写入深/浅色模式设置。
+// writeLightDark 写入深/浅色模式设置并通知外壳刷新。
 func writeLightDark(light uint32) error {
 	key, err := registry.OpenKey(registry.CURRENT_USER, personalizeKey, registry.SET_VALUE)
 	if err != nil {
@@ -96,6 +97,15 @@ func writeLightDark(light uint32) error {
 		return err
 	}
 	broadcast("WindowsThemeElement")
+	broadcast("ImmersiveColorSet")
+	return nil
+}
+
+// Restore 关闭"从背景自动取色", 让系统回到用户自己设定的强调色。
+func Restore() error {
+	if err := setAutoColor(false); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -110,7 +120,7 @@ func broadcast(setting string) {
 		wmSettingChange,
 		0,
 		uintptr(unsafe.Pointer(ptr)),
-		smtoAbortIfHung,
+		smtoAbortIfHun,
 		1000,
 		0,
 	)
